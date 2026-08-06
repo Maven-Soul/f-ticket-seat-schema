@@ -13,6 +13,18 @@ npm run dev
 
 Studio будет доступна по адресу `http://localhost:5174`.
 
+## Запуск в Docker
+
+Из каталога Studio:
+
+```bash
+docker compose up --build
+```
+
+Контейнер использует соседний каталог `../fpass-seatmap-package` как build
+context и доступен по `http://localhost:5174`. Для другого порта задайте
+`STUDIO_PORT`, например: `STUDIO_PORT=5175 docker compose up --build`.
+
 ## Работа со схемой
 
 1. Укажите название и при необходимости группу шаблонов.

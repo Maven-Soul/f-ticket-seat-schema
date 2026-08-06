@@ -1,0 +1,28 @@
+name: fpass-sheme-studio
+
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      additional_contexts:
+        seatmap-package: ../fpass-seatmap-package
+    image: fpass-sheme-studio:local
+    ports:
+      - '${STUDIO_PORT:-5174}:8080'
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
