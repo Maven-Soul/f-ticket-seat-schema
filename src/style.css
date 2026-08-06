@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@import "@fpass/seat-map/seat-map.css";
+@import "@fpass/seat-map/seat-map.theme.css";
+
+@source "../node_modules/@fpass/seat-map/src";
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #18181b;
+  background: #f8fafc;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
