@@ -72,9 +72,47 @@ function studioFile(name = 'Главный зал'): StudioSchemeFile {
         label: 'Танцпол',
         x: 100,
         y: 200,
-        capacity: 80,
       },
     ],
+  }
+}
+
+class FailingStorage implements Storage {
+  constructor(
+    private readonly backing: Storage,
+    private readonly failure: 'read' | 'write',
+  ) {}
+
+  get length(): number {
+    return this.backing.length
+  }
+
+  clear(): void {
+    this.backing.clear()
+  }
+
+  getItem(key: string): string | null {
+    if (this.failure === 'read') {
+      throw new DOMException('Storage access denied', 'SecurityError')
+    }
+
+    return this.backing.getItem(key)
+  }
+
+  key(index: number): string | null {
+    return this.backing.key(index)
+  }
+
+  removeItem(key: string): void {
+    this.backing.removeItem(key)
+  }
+
+  setItem(key: string, value: string): void {
+    if (this.failure === 'write') {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    }
+
+    this.backing.setItem(key, value)
   }
 }
 
@@ -106,6 +144,17 @@ function editor(wrapper: VueWrapper) {
   }
 
   return component
+}
+
+function groupNameInput(wrapper: VueWrapper) {
+  const input = wrapper.findAll('input').find(candidate => (
+    candidate.attributes('placeholder') === 'Например: Театры'
+  ))
+  if (!input) {
+    throw new Error('Group name input not found')
+  }
+
+  return input
 }
 
 describe('standalone Studio document manager', () => {
@@ -142,6 +191,91 @@ describe('standalone Studio document manager', () => {
     expect((wrapper.get('[data-testid="scheme-name"]').element as HTMLInputElement).value).toBe('Партер')
     expect(loadStudioSchemes().map(document => document.file.scheme.name)).toEqual(['Партер', 'Балкон'])
     expect(loadStudioSchemes()[0].id).not.toBe(loadStudioSchemes()[1].id)
+  })
+
+  it('persists canonical trimmed identity from the Studio inputs', async () => {
+    const existing = createStudioScheme('Партер')
+    saveStudioSchemes([existing])
+    const wrapper = mount(App)
+
+    await wrapper.get('[data-testid="scheme-name"]').setValue('  Новый партер  ')
+    await groupNameInput(wrapper).setValue('  Театры  ')
+
+    expect(loadStudioSchemes()[0].file.scheme).toEqual({
+      name: 'Новый партер',
+      group_name: 'Театры',
+    })
+  })
+
+  it('does not persist or export while the name input is invalid', async () => {
+    const existing = createStudioScheme('Партер')
+    saveStudioSchemes([existing])
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
+    const wrapper = mount(App)
+
+    await wrapper.get('[data-testid="scheme-name"]').setValue('   ')
+
+    expect(wrapper.text()).toContain('Название схемы обязательно')
+    expect(loadStudioSchemes()).toEqual([existing])
+
+    const changed = studioFile('Партер')
+    editor(wrapper).vm.$emit(
+      'export',
+      changed.schema_json.canvas,
+      changed.objects,
+      changed.schema_json.price_groups,
+    )
+    await flushPromises()
+
+    expect(loadStudioSchemes()).toEqual([existing])
+    expect(createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('keeps creation uncommitted when durable storage rejects the write', async () => {
+    const backingStorage = localStorage
+    vi.stubGlobal('localStorage', new FailingStorage(backingStorage, 'write'))
+    const wrapper = mount(App)
+
+    await button(wrapper, 'Создать схему').trigger('click')
+
+    expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('Не удалось сохранить схемы')
+    expect(wrapper.findAll('[data-testid="studio-document"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="scheme-name"]').exists()).toBe(false)
+    expect(backingStorage.getItem('fpass-scheme-studio:documents:v2')).toBeNull()
+  })
+
+  it('keeps the durable editor document authoritative and does not export after a failed write', async () => {
+    const backingStorage = localStorage
+    const existing = createStudioScheme('Партер')
+    saveStudioSchemes([existing], backingStorage)
+    vi.stubGlobal('localStorage', new FailingStorage(backingStorage, 'write'))
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
+    const wrapper = mount(App)
+    const changed = studioFile('Партер')
+
+    editor(wrapper).vm.$emit(
+      'export',
+      changed.schema_json.canvas,
+      changed.objects,
+      changed.schema_json.price_groups,
+    )
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('Не удалось сохранить схемы')
+    expect(loadStudioSchemes(backingStorage)).toEqual([existing])
+    expect(editor(wrapper).props('initialCanvas')).toEqual(existing.file.schema_json.canvas)
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('Экспортировано в')
+  })
+
+  it('renders a storage access error instead of crashing during initialization', () => {
+    const backingStorage = localStorage
+    vi.stubGlobal('localStorage', new FailingStorage(backingStorage, 'read'))
+
+    const wrapper = mount(App)
+
+    expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('Не удалось загрузить схемы')
+    expect(wrapper.findAll('[data-testid="studio-document"]')).toHaveLength(0)
   })
 
   it('imports exact JSON v2 under a collision-safe local id and selects it', async () => {
@@ -195,22 +329,25 @@ describe('standalone Studio document manager', () => {
     const wrapper = mount(App)
     await wrapper.findAll('[data-testid="studio-document"]')[1].find('button').trigger('click')
     const file = studioFile('Балкон')
+    const editorObjects = file.objects.map(object => ({ ...object, capacity: 80 }))
 
     editor(wrapper).vm.$emit(
       'save',
       file.schema_json.canvas,
-      file.objects,
+      editorObjects,
       file.schema_json.price_groups,
     )
     await flushPromises()
 
-    expect(loadStudioSchemes()[0].file).toEqual(first.file)
-    expect(loadStudioSchemes()[1].file).toEqual(file)
+    const storedAfterSave = loadStudioSchemes()
+    expect(storedAfterSave).toHaveLength(2)
+    expect(storedAfterSave[0].file).toEqual(first.file)
+    expect(storedAfterSave[1].file).toEqual(file)
 
     editor(wrapper).vm.$emit(
       'export',
       file.schema_json.canvas,
-      file.objects,
+      editorObjects,
       file.schema_json.price_groups,
     )
     await flushPromises()

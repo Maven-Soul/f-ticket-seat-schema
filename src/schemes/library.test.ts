@@ -40,7 +40,6 @@ function validFile(): Record<string, unknown> {
         label: 'Танцпол',
         x: 10,
         y: 20,
-        capacity: 100,
       },
     ],
   }
@@ -74,6 +73,51 @@ describe('studio scheme document library', () => {
 
   it('parses the exact FPass JSON v2 envelope', () => {
     expect(parseStudioSchemeFile(validFile())).toEqual(validFile())
+  })
+
+  it('returns a trimmed canonical scheme identity', () => {
+    const file = validFile()
+    file.scheme = {
+      name: '  Главный зал  ',
+      group_name: '  Театры  ',
+    }
+
+    expect(parseStudioSchemeFile(file).scheme).toEqual({
+      name: 'Главный зал',
+      group_name: 'Театры',
+    })
+
+    file.scheme = {
+      name: 'Главный зал',
+      group_name: '   ',
+    }
+
+    expect(parseStudioSchemeFile(file).scheme.group_name).toBeNull()
+  })
+
+  it('accepts the default name and a 255 Unicode-code-point identity', () => {
+    const file = validFile()
+    file.scheme = {
+      name: '🎭'.repeat(255),
+      group_name: 'Ж'.repeat(255),
+    }
+
+    expect(parseStudioSchemeFile(file).scheme).toEqual(file.scheme)
+    expect(parseStudioSchemeFile(createStudioScheme().file).scheme.name).toBe('Новая схема')
+  })
+
+  it.each([
+    ['a blank scheme name', '   ', null],
+    ['a name over 255 Unicode code points', '🎭'.repeat(256), null],
+    ['a group over 255 Unicode code points', 'Главный зал', '🎭'.repeat(256)],
+  ])('rejects %s', (_caseName, name, groupName) => {
+    const file = validFile()
+    file.scheme = {
+      name,
+      group_name: groupName,
+    }
+
+    expect(() => parseStudioSchemeFile(file)).toThrowError(FORMAT_ERROR)
   })
 
   it.each([
@@ -146,6 +190,18 @@ describe('studio scheme document library', () => {
         price_groups: [],
         sections: [{ key: 'legacy' }],
       }
+      return file
+    }],
+    ['legacy object capacity', () => {
+      const file = validFile()
+      file.objects = [{
+        external_key: 'dancefloor',
+        type: 'dancefloor',
+        label: 'Танцпол',
+        x: 10,
+        y: 20,
+        capacity: 100,
+      }]
       return file
     }],
     ['embedded offers', () => ({ ...validFile(), offers: [] })],

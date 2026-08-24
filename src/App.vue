@@ -6,27 +6,50 @@ import { SeatMapEditor } from '@fpass/seat-map/studio'
 import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
 import type { SeatMapCanvasSize, SeatMapObject } from '@fpass/seat-map/schema'
 import {
+  canonicalizeStudioSchemeIdentity,
   createStudioScheme,
   loadStudioSchemes,
   parseStudioSchemeFile,
   saveStudioSchemes,
+  STUDIO_SCHEME_IDENTITY_ERROR,
   type StoredStudioScheme,
   type StudioSchemeFile,
 } from './schemes/library'
 
+const LOAD_ERROR = 'Не удалось загрузить схемы из локального хранилища.'
+const SAVE_ERROR = 'Не удалось сохранить схемы в локальном хранилище. Повторите действие.'
+
 const fileInput = ref<HTMLInputElement | null>(null)
-const documents = shallowRef<StoredStudioScheme[]>(loadStudioSchemes())
+const persistenceError = ref('')
+const identityError = ref('')
+const documents = shallowRef<StoredStudioScheme[]>(loadDocuments())
 const activeId = ref<string | null>(documents.value[0]?.id ?? null)
 const importError = ref('')
 const exportedAt = ref<string | null>(null)
+
+function loadDocuments(): StoredStudioScheme[] {
+  try {
+    return loadStudioSchemes()
+  } catch {
+    persistenceError.value = LOAD_ERROR
+    return []
+  }
+}
 
 const activeDocument = computed(() => (
   documents.value.find(document => document.id === activeId.value) ?? null
 ))
 
-function persist(nextDocuments: StoredStudioScheme[]): void {
-  documents.value = nextDocuments
-  saveStudioSchemes(nextDocuments)
+function persist(nextDocuments: StoredStudioScheme[]): boolean {
+  try {
+    saveStudioSchemes(nextDocuments)
+    documents.value = nextDocuments
+    persistenceError.value = ''
+    return true
+  } catch {
+    persistenceError.value = SAVE_ERROR
+    return false
+  }
 }
 
 function createUniqueDocument(file?: StudioSchemeFile): StoredStudioScheme {
@@ -42,15 +65,20 @@ function createUniqueDocument(file?: StudioSchemeFile): StoredStudioScheme {
 
 function createDocument(): void {
   const document = createUniqueDocument()
-  persist([...documents.value, document])
+  if (!persist([...documents.value, document])) {
+    return
+  }
+
   activeId.value = document.id
   importError.value = ''
+  identityError.value = ''
   exportedAt.value = null
 }
 
 function selectDocument(id: string): void {
   activeId.value = id
   importError.value = ''
+  identityError.value = ''
   exportedAt.value = null
 }
 
@@ -78,32 +106,62 @@ function updateActiveFile(
   })
 
   if (updatedDocument !== null) {
-    persist(nextDocuments)
+    return persist(nextDocuments) ? updatedDocument : null
   }
 
-  return updatedDocument
+  return null
 }
 
 function updateName(event: Event): void {
   const name = (event.target as HTMLInputElement).value
+  const document = activeDocument.value
+  if (document === null) {
+    return
+  }
+
+  let scheme: StudioSchemeFile['scheme']
+  try {
+    scheme = canonicalizeStudioSchemeIdentity(name, document.file.scheme.group_name)
+    identityError.value = ''
+  } catch {
+    identityError.value = STUDIO_SCHEME_IDENTITY_ERROR
+    return
+  }
+
   updateActiveFile(file => ({
     ...file,
-    scheme: {
-      ...file.scheme,
-      name,
-    },
+    scheme,
   }))
 }
 
 function updateGroupName(event: Event): void {
   const groupName = (event.target as HTMLInputElement).value
+  const document = activeDocument.value
+  if (document === null) {
+    return
+  }
+
+  let scheme: StudioSchemeFile['scheme']
+  try {
+    scheme = canonicalizeStudioSchemeIdentity(document.file.scheme.name, groupName)
+    identityError.value = ''
+  } catch {
+    identityError.value = STUDIO_SCHEME_IDENTITY_ERROR
+    return
+  }
+
   updateActiveFile(file => ({
     ...file,
-    scheme: {
-      ...file.scheme,
-      group_name: groupName.trim() || null,
-    },
+    scheme,
   }))
+}
+
+function withoutLegacyCapacity(objects: SeatMapObject[]): SeatMapObject[] {
+  return objects.map((object) => {
+    const capacityFreeObject = { ...object }
+    delete capacityFreeObject.capacity
+    return capacityFreeObject
+  })
 }
 
 function updateEditorState(
@@ -111,6 +169,10 @@ function updateEditorState(
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
 ): StoredStudioScheme | null {
+  if (identityError.value !== '') {
+    return null
+  }
+
   return updateActiveFile(file => ({
     ...file,
     schema_json: {
@@ -118,7 +180,7 @@ function updateEditorState(
       price_groups: priceGroups,
       sections: [],
     },
-    objects,
+    objects: withoutLegacyCapacity(objects),
   }))
 }
 
@@ -186,9 +248,13 @@ async function importFile(event: Event): Promise<void> {
 
     const parsed = parseStudioSchemeFile(raw)
     const document = createUniqueDocument(parsed)
-    persist([...documents.value, document])
+    if (!persist([...documents.value, document])) {
+      return
+    }
+
     activeId.value = document.id
     importError.value = ''
+    identityError.value = ''
     exportedAt.value = null
   } catch (error) {
     importError.value = error instanceof Error
@@ -209,12 +275,16 @@ function deleteDocument(id: string): void {
   }
 
   const nextDocuments = documents.value.filter(candidate => candidate.id !== id)
+  if (!persist(nextDocuments)) {
+    return
+  }
+
   if (activeId.value === id) {
     activeId.value = nextDocuments[Math.min(index, nextDocuments.length - 1)]?.id ?? null
   }
 
-  persist(nextDocuments)
   importError.value = ''
+  identityError.value = ''
   exportedAt.value = null
 }
 </script>
@@ -252,6 +322,14 @@ function deleteDocument(id: string): void {
           Создать схему
         </button>
       </header>
+
+      <p
+        v-if="persistenceError"
+        data-testid="persistence-error"
+        class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+      >
+        {{ persistenceError }}
+      </p>
 
       <p
         v-if="importError"
@@ -324,6 +402,7 @@ function deleteDocument(id: string): void {
               <input
                 data-testid="scheme-name"
                 :value="activeDocument.file.scheme.name"
+                :aria-invalid="Boolean(identityError)"
                 class="h-10 rounded-md border px-3 font-normal outline-none focus:ring-2 focus:ring-sky-500"
                 @input="updateName"
               >
@@ -332,11 +411,15 @@ function deleteDocument(id: string): void {
               Группа схем
               <input
                 :value="activeDocument.file.scheme.group_name ?? ''"
+                :aria-invalid="Boolean(identityError)"
                 class="h-10 rounded-md border px-3 font-normal outline-none focus:ring-2 focus:ring-sky-500"
                 placeholder="Например: Театры"
                 @input="updateGroupName"
               >
             </label>
+            <p v-if="identityError" class="text-sm text-red-700 md:col-span-2">
+              {{ identityError }}
+            </p>
             <p v-if="exportedAt" class="text-sm text-slate-500 md:col-span-2">
               Экспортировано в {{ exportedAt }}
             </p>

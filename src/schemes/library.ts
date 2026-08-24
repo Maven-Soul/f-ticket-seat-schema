@@ -24,6 +24,31 @@ export interface StoredStudioScheme {
 
 const FORMAT_ERROR = 'Поддерживается JSON-схема FPass версии 2.'
 const STORAGE_KEY = 'fpass-scheme-studio:documents:v2'
+const MAX_IDENTITY_CODE_POINTS = 255
+
+export const STUDIO_SCHEME_IDENTITY_ERROR = 'Название схемы обязательно; название и группа должны содержать не более 255 символов.'
+
+export function canonicalizeStudioSchemeIdentity(
+  name: string,
+  groupName: string | null,
+): StudioSchemeFile['scheme'] {
+  const canonicalName = name.trim()
+  const canonicalGroupName = groupName?.trim() || null
+
+  if (
+    canonicalName === ''
+    || Array.from(canonicalName).length > MAX_IDENTITY_CODE_POINTS
+    || (canonicalGroupName !== null
+      && Array.from(canonicalGroupName).length > MAX_IDENTITY_CODE_POINTS)
+  ) {
+    throw new Error(STUDIO_SCHEME_IDENTITY_ERROR)
+  }
+
+  return {
+    name: canonicalName,
+    group_name: canonicalGroupName,
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -89,7 +114,6 @@ function isSeatMapObject(value: unknown): value is SeatMapObject {
         'style',
         'color',
         'price',
-        'capacity',
         'price_group_key',
       ],
     )
@@ -106,7 +130,7 @@ function isSeatMapObject(value: unknown): value is SeatMapObject {
     .every(key => hasValidOptional(value, key, isNullableString))
     && ['is_accessible', 'view_limited']
       .every(key => hasValidOptional(value, key, field => typeof field === 'boolean'))
-    && ['width', 'height', 'rotation', 'price', 'capacity']
+    && ['width', 'height', 'rotation', 'price']
       .every(key => hasValidOptional(value, key, isNullableFiniteNumber))
     && hasValidOptional(value, 'z_index', isFiniteNumber)
     && hasValidOptional(value, 'style', field => field === null || isRecord(field))
@@ -140,6 +164,13 @@ export function parseStudioSchemeFile(value: unknown): StudioSchemeFile {
   const priceGroups = value.schema_json.price_groups
   const sections = value.schema_json.sections
   const objects = value.objects
+  let scheme: StudioSchemeFile['scheme']
+
+  try {
+    scheme = canonicalizeStudioSchemeIdentity(value.scheme.name, value.scheme.group_name)
+  } catch {
+    return invalidFormat()
+  }
 
   if (
     !isFiniteNumber(canvas.width)
@@ -160,10 +191,7 @@ export function parseStudioSchemeFile(value: unknown): StudioSchemeFile {
   return {
     format: 'fpass-seat-map',
     version: 2,
-    scheme: {
-      name: value.scheme.name,
-      group_name: value.scheme.group_name,
-    },
+    scheme,
     schema_json: {
       canvas: {
         width: canvas.width,
@@ -178,16 +206,15 @@ export function parseStudioSchemeFile(value: unknown): StudioSchemeFile {
 }
 
 export function createStudioScheme(name = 'Новая схема'): StoredStudioScheme {
+  const scheme = canonicalizeStudioSchemeIdentity(name.trim() || 'Новая схема', null)
+
   return {
     id: crypto.randomUUID(),
     updatedAt: new Date().toISOString(),
     file: {
       format: 'fpass-seat-map',
       version: 2,
-      scheme: {
-        name: name.trim() || 'Новая схема',
-        group_name: null,
-      },
+      scheme,
       schema_json: {
         canvas: {
           width: 1200,
