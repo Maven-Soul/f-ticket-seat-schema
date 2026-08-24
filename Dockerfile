@@ -7,6 +7,9 @@ WORKDIR /workspace
 # The shared package is a separate build context supplied by docker compose.
 COPY --from=seatmap-package / /workspace/fpass-seatmap-package
 
+WORKDIR /workspace/fpass-seatmap-package
+RUN npm ci && npm run build
+
 WORKDIR /workspace/fpass-sheme-studio
 COPY package.json package-lock.json ./
 RUN npm ci
