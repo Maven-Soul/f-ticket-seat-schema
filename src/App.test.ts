@@ -78,9 +78,13 @@ function studioFile(name = 'Главный зал'): StudioSchemeFile {
 }
 
 class FailingStorage implements Storage {
+  writes = 0
+
+  private writeFailed = false
+
   constructor(
     private readonly backing: Storage,
-    private readonly failure: 'read' | 'write',
+    private readonly failure: 'read' | 'write' | 'write-once',
   ) {}
 
   get length(): number {
@@ -108,7 +112,13 @@ class FailingStorage implements Storage {
   }
 
   setItem(key: string, value: string): void {
-    if (this.failure === 'write') {
+    this.writes += 1
+
+    if (
+      this.failure === 'write'
+      || (this.failure === 'write-once' && !this.writeFailed)
+    ) {
+      this.writeFailed = true
       throw new DOMException('Quota exceeded', 'QuotaExceededError')
     }
 
@@ -207,13 +217,14 @@ describe('standalone Studio document manager', () => {
     })
   })
 
-  it('does not persist or export while the name input is invalid', async () => {
+  it('does not persist or export after a group edit while the name draft is invalid', async () => {
     const existing = createStudioScheme('Партер')
     saveStudioSchemes([existing])
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
     const wrapper = mount(App)
 
     await wrapper.get('[data-testid="scheme-name"]').setValue('   ')
+    await groupNameInput(wrapper).setValue('Новая группа')
 
     expect(wrapper.text()).toContain('Название схемы обязательно')
     expect(loadStudioSchemes()).toEqual([existing])
@@ -228,6 +239,35 @@ describe('standalone Studio document manager', () => {
     await flushPromises()
 
     expect(loadStudioSchemes()).toEqual([existing])
+    expect(createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('does not export stale identity after a transiently failed rename', async () => {
+    const backingStorage = localStorage
+    const existing = createStudioScheme('Партер')
+    saveStudioSchemes([existing], backingStorage)
+    const failingStorage = new FailingStorage(backingStorage, 'write-once')
+    vi.stubGlobal('localStorage', failingStorage)
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
+    const wrapper = mount(App)
+
+    await wrapper.get('[data-testid="scheme-name"]').setValue('Балкон')
+
+    expect((wrapper.get('[data-testid="scheme-name"]').element as HTMLInputElement).value).toBe('Балкон')
+    expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('Не удалось сохранить схемы')
+    expect(loadStudioSchemes(backingStorage)).toEqual([existing])
+
+    const changed = studioFile('Балкон')
+    editor(wrapper).vm.$emit(
+      'export',
+      changed.schema_json.canvas,
+      changed.objects,
+      changed.schema_json.price_groups,
+    )
+    await flushPromises()
+
+    expect(failingStorage.writes).toBe(1)
+    expect(loadStudioSchemes(backingStorage)).toEqual([existing])
     expect(createObjectURL).not.toHaveBeenCalled()
   })
 
@@ -268,14 +308,66 @@ describe('standalone Studio document manager', () => {
     expect(wrapper.text()).not.toContain('Экспортировано в')
   })
 
-  it('renders a storage access error instead of crashing during initialization', () => {
+  it('freezes storage-backed actions after an initial read failure', async () => {
     const backingStorage = localStorage
-    vi.stubGlobal('localStorage', new FailingStorage(backingStorage, 'read'))
+    const existing = createStudioScheme('Не перезаписывать')
+    saveStudioSchemes([existing], backingStorage)
+    const durableBeforeMount = backingStorage.getItem('fpass-scheme-studio:documents:v2')
+    const failingStorage = new FailingStorage(backingStorage, 'read')
+    vi.stubGlobal('localStorage', failingStorage)
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
 
     const wrapper = mount(App)
 
     expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('Не удалось загрузить схемы')
+
+    await button(wrapper, 'Создать схему').trigger('click')
+    await importJson(wrapper, studioFile('Импорт'))
+
+    expect(failingStorage.writes).toBe(0)
+    expect(backingStorage.getItem('fpass-scheme-studio:documents:v2')).toBe(durableBeforeMount)
+    expect(wrapper.text()).toContain('Не удалось загрузить схемы')
     expect(wrapper.findAll('[data-testid="studio-document"]')).toHaveLength(0)
+    expect(createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('migrates trusted stored capacity and retains the document on the next save', async () => {
+    const legacy = createStudioScheme('Старая схема')
+    legacy.file.objects = [{
+      external_key: 'dancefloor',
+      type: 'dancefloor',
+      label: 'Танцпол',
+      x: 100,
+      y: 200,
+      capacity: 80,
+    }]
+    saveStudioSchemes([legacy])
+
+    const wrapper = mount(App)
+
+    expect(wrapper.findAll('[data-testid="studio-document"]')).toHaveLength(1)
+    expect(editor(wrapper).props('initialObjects')).toEqual([{
+      external_key: 'dancefloor',
+      type: 'dancefloor',
+      label: 'Танцпол',
+      x: 100,
+      y: 200,
+    }])
+
+    await wrapper.get('[data-testid="scheme-name"]').setValue('Старая схема сохранена')
+
+    const stored = loadStudioSchemes()
+    const persisted = JSON.parse(localStorage.getItem('fpass-scheme-studio:documents:v2') ?? '[]')
+    expect(stored).toHaveLength(1)
+    expect(stored[0].file.scheme.name).toBe('Старая схема сохранена')
+    expect(stored[0].file.objects).toEqual([{
+      external_key: 'dancefloor',
+      type: 'dancefloor',
+      label: 'Танцпол',
+      x: 100,
+      y: 200,
+    }])
+    expect(persisted[0].file.objects).toEqual(stored[0].file.objects)
   })
 
   it('imports exact JSON v2 under a collision-safe local id and selects it', async () => {

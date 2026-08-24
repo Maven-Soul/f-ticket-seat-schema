@@ -140,6 +140,25 @@ function invalidFormat(): never {
   throw new Error(FORMAT_ERROR)
 }
 
+function migrateTrustedStoredFile(value: unknown): unknown {
+  if (!isRecord(value) || !Array.isArray(value.objects)) {
+    return value
+  }
+
+  return {
+    ...value,
+    objects: value.objects.map((object) => {
+      if (!isRecord(object) || !Object.hasOwn(object, 'capacity')) {
+        return object
+      }
+
+      const migratedObject = { ...object }
+      delete migratedObject.capacity
+      return migratedObject
+    }),
+  }
+}
+
 export function parseStudioSchemeFile(value: unknown): StudioSchemeFile {
   if (
     !isRecord(value)
@@ -257,7 +276,7 @@ export function loadStudioSchemes(storage: Storage = localStorage): StoredStudio
         documents.push({
           id: value.id,
           updatedAt: value.updatedAt,
-          file: parseStudioSchemeFile(value.file),
+          file: parseStudioSchemeFile(migrateTrustedStoredFile(value.file)),
         })
       } catch {
         continue

@@ -16,12 +16,13 @@ import {
   type StudioSchemeFile,
 } from './schemes/library'
 
-const LOAD_ERROR = 'Не удалось загрузить схемы из локального хранилища.'
+const LOAD_ERROR = 'Не удалось загрузить схемы из локального хранилища. Перезагрузите страницу, чтобы повторить.'
 const SAVE_ERROR = 'Не удалось сохранить схемы в локальном хранилище. Повторите действие.'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const persistenceError = ref('')
 const identityError = ref('')
+const storageAuthoritative = ref(true)
 const documents = shallowRef<StoredStudioScheme[]>(loadDocuments())
 const activeId = ref<string | null>(documents.value[0]?.id ?? null)
 const importError = ref('')
@@ -31,6 +32,7 @@ function loadDocuments(): StoredStudioScheme[] {
   try {
     return loadStudioSchemes()
   } catch {
+    storageAuthoritative.value = false
     persistenceError.value = LOAD_ERROR
     return []
   }
@@ -39,8 +41,23 @@ function loadDocuments(): StoredStudioScheme[] {
 const activeDocument = computed(() => (
   documents.value.find(document => document.id === activeId.value) ?? null
 ))
+const nameDraft = ref(activeDocument.value?.file.scheme.name ?? '')
+const groupNameDraft = ref(activeDocument.value?.file.scheme.group_name ?? '')
+const identityDraftPending = ref(false)
+
+function resetIdentityDraft(document = activeDocument.value): void {
+  nameDraft.value = document?.file.scheme.name ?? ''
+  groupNameDraft.value = document?.file.scheme.group_name ?? ''
+  identityDraftPending.value = false
+  identityError.value = ''
+}
 
 function persist(nextDocuments: StoredStudioScheme[]): boolean {
+  if (!storageAuthoritative.value) {
+    persistenceError.value = LOAD_ERROR
+    return false
+  }
+
   try {
     saveStudioSchemes(nextDocuments)
     documents.value = nextDocuments
@@ -71,14 +88,14 @@ function createDocument(): void {
 
   activeId.value = document.id
   importError.value = ''
-  identityError.value = ''
+  resetIdentityDraft(document)
   exportedAt.value = null
 }
 
 function selectDocument(id: string): void {
   activeId.value = id
   importError.value = ''
-  identityError.value = ''
+  resetIdentityDraft()
   exportedAt.value = null
 }
 
@@ -112,48 +129,34 @@ function updateActiveFile(
   return null
 }
 
-function updateName(event: Event): void {
-  const name = (event.target as HTMLInputElement).value
-  const document = activeDocument.value
-  if (document === null) {
-    return
-  }
-
+function persistIdentityDraft(): void {
+  identityDraftPending.value = true
   let scheme: StudioSchemeFile['scheme']
   try {
-    scheme = canonicalizeStudioSchemeIdentity(name, document.file.scheme.group_name)
-    identityError.value = ''
+    scheme = canonicalizeStudioSchemeIdentity(nameDraft.value, groupNameDraft.value)
   } catch {
     identityError.value = STUDIO_SCHEME_IDENTITY_ERROR
     return
   }
 
-  updateActiveFile(file => ({
+  const updatedDocument = updateActiveFile(file => ({
     ...file,
     scheme,
   }))
+
+  if (updatedDocument !== null) {
+    resetIdentityDraft(updatedDocument)
+  }
+}
+
+function updateName(event: Event): void {
+  nameDraft.value = (event.target as HTMLInputElement).value
+  persistIdentityDraft()
 }
 
 function updateGroupName(event: Event): void {
-  const groupName = (event.target as HTMLInputElement).value
-  const document = activeDocument.value
-  if (document === null) {
-    return
-  }
-
-  let scheme: StudioSchemeFile['scheme']
-  try {
-    scheme = canonicalizeStudioSchemeIdentity(document.file.scheme.name, groupName)
-    identityError.value = ''
-  } catch {
-    identityError.value = STUDIO_SCHEME_IDENTITY_ERROR
-    return
-  }
-
-  updateActiveFile(file => ({
-    ...file,
-    scheme,
-  }))
+  groupNameDraft.value = (event.target as HTMLInputElement).value
+  persistIdentityDraft()
 }
 
 function withoutLegacyCapacity(objects: SeatMapObject[]): SeatMapObject[] {
@@ -169,7 +172,7 @@ function updateEditorState(
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
 ): StoredStudioScheme | null {
-  if (identityError.value !== '') {
+  if (identityDraftPending.value) {
     return null
   }
 
@@ -254,7 +257,7 @@ async function importFile(event: Event): Promise<void> {
 
     activeId.value = document.id
     importError.value = ''
-    identityError.value = ''
+    resetIdentityDraft(document)
     exportedAt.value = null
   } catch (error) {
     importError.value = error instanceof Error
@@ -281,10 +284,10 @@ function deleteDocument(id: string): void {
 
   if (activeId.value === id) {
     activeId.value = nextDocuments[Math.min(index, nextDocuments.length - 1)]?.id ?? null
+    resetIdentityDraft()
   }
 
   importError.value = ''
-  identityError.value = ''
   exportedAt.value = null
 }
 </script>
@@ -401,7 +404,7 @@ function deleteDocument(id: string): void {
               Название схемы
               <input
                 data-testid="scheme-name"
-                :value="activeDocument.file.scheme.name"
+                :value="nameDraft"
                 :aria-invalid="Boolean(identityError)"
                 class="h-10 rounded-md border px-3 font-normal outline-none focus:ring-2 focus:ring-sky-500"
                 @input="updateName"
@@ -410,7 +413,7 @@ function deleteDocument(id: string): void {
             <label class="grid gap-1.5 text-sm font-medium">
               Группа схем
               <input
-                :value="activeDocument.file.scheme.group_name ?? ''"
+                :value="groupNameDraft"
                 :aria-invalid="Boolean(identityError)"
                 class="h-10 rounded-md border px-3 font-normal outline-none focus:ring-2 focus:ring-sky-500"
                 placeholder="Например: Театры"
