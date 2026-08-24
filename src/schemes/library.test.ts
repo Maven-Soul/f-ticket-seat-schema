@@ -1,0 +1,156 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+
+import {
+  createStudioScheme,
+  loadStudioSchemes,
+  parseStudioSchemeFile,
+  saveStudioSchemes,
+} from './library'
+
+const FORMAT_ERROR = 'Поддерживается JSON-схема FPass версии 2.'
+
+function validFile(): Record<string, unknown> {
+  return {
+    format: 'fpass-seat-map',
+    version: 2,
+    scheme: {
+      name: 'Главный зал',
+      group_name: 'Театры',
+    },
+    schema_json: {
+      canvas: {
+        width: 1200,
+        height: 800,
+        background: '#ffffff',
+      },
+      price_groups: [
+        {
+          key: 'vip',
+          name: 'VIP',
+          color: '#e11d48',
+          price_amount: 500000,
+        },
+      ],
+      sections: [],
+    },
+    objects: [
+      {
+        external_key: 'dancefloor',
+        type: 'dancefloor',
+        label: 'Танцпол',
+        x: 10,
+        y: 20,
+        capacity: 100,
+      },
+    ],
+  }
+}
+
+describe('studio scheme document library', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('persists two named documents independently', () => {
+    const first = createStudioScheme('Партер')
+    saveStudioSchemes([first])
+
+    const second = createStudioScheme('Балкон')
+    saveStudioSchemes([...loadStudioSchemes(), second])
+
+    const stored = loadStudioSchemes()
+
+    expect(stored.map(({ file }) => file.scheme.name)).toEqual(['Партер', 'Балкон'])
+    expect(stored[0].id).not.toBe(stored[1].id)
+
+    stored[0].file.scheme.name = 'Партер обновлён'
+    saveStudioSchemes(stored)
+
+    expect(loadStudioSchemes().map(({ file }) => file.scheme.name)).toEqual([
+      'Партер обновлён',
+      'Балкон',
+    ])
+  })
+
+  it('parses the exact FPass JSON v2 envelope', () => {
+    expect(parseStudioSchemeFile(validFile())).toEqual(validFile())
+  })
+
+  it.each([
+    ['a malformed price group', () => {
+      const file = validFile()
+      file.schema_json = {
+        canvas: { width: 1200, height: 800 },
+        price_groups: [null],
+        sections: [],
+      }
+      return file
+    }],
+    ['a malformed geometry object', () => ({ ...validFile(), objects: [null] })],
+  ])('rejects %s instead of casting malformed array members', (_caseName, makeValue) => {
+    expect(() => parseStudioSchemeFile(makeValue())).toThrowError(FORMAT_ERROR)
+  })
+
+  it('keeps valid documents when another stored document is corrupt', () => {
+    const valid = createStudioScheme('Партер')
+    const corruptSource = createStudioScheme('Повреждённая схема')
+    const corrupt = {
+      ...corruptSource,
+      file: {
+        ...corruptSource.file,
+        objects: [null],
+      },
+    }
+
+    localStorage.setItem(
+      'fpass-scheme-studio:documents:v2',
+      JSON.stringify([valid, corrupt]),
+    )
+
+    expect(loadStudioSchemes()).toEqual([valid])
+  })
+
+  it.each([
+    ['a non-positive canvas dimension', () => {
+      const file = validFile()
+      file.schema_json = {
+        canvas: { width: 0, height: 800 },
+        price_groups: [],
+        sections: [],
+      }
+      return file
+    }],
+    ['a non-finite canvas dimension', () => {
+      const file = validFile()
+      file.schema_json = {
+        canvas: { width: 1200, height: Number.POSITIVE_INFINITY },
+        price_groups: [],
+        sections: [],
+      }
+      return file
+    }],
+    ['a non-array objects value', () => ({ ...validFile(), objects: {} })],
+    ['a non-array price_groups value', () => {
+      const file = validFile()
+      file.schema_json = {
+        canvas: { width: 1200, height: 800 },
+        price_groups: {},
+        sections: [],
+      }
+      return file
+    }],
+    ['non-empty sections', () => {
+      const file = validFile()
+      file.schema_json = {
+        canvas: { width: 1200, height: 800 },
+        price_groups: [],
+        sections: [{ key: 'legacy' }],
+      }
+      return file
+    }],
+    ['embedded offers', () => ({ ...validFile(), offers: [] })],
+    ['embedded packages', () => ({ ...validFile(), packages: [] })],
+  ])('rejects %s with the v2 format error', (_caseName, makeValue) => {
+    expect(() => parseStudioSchemeFile(makeValue())).toThrowError(FORMAT_ERROR)
+  })
+})
