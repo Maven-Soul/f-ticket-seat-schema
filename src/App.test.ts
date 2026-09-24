@@ -451,6 +451,79 @@ describe('standalone Studio document manager', () => {
     expect(localStorage.getItem('fpass-scheme-studio:draft')).toBeNull()
   })
 
+  it('keeps schema_json.display on save and export, and omits it when absent', async () => {
+    const withoutDisplay = createStudioScheme('Партер')
+    const withDisplay = createStudioScheme('Балкон')
+    withDisplay.file.schema_json.display = {
+      section_contents: 'after_zoom',
+      sector_price_labels: true,
+    }
+    saveStudioSchemes([withoutDisplay, withDisplay])
+
+    let exportedBlob: Blob | undefined
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((value) => {
+      if (value instanceof Blob) {
+        exportedBlob = value
+      }
+      return 'blob:studio-export'
+    })
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+
+    const wrapper = mount(App)
+
+    editor(wrapper).vm.$emit(
+      'save',
+      withoutDisplay.file.schema_json.canvas,
+      withoutDisplay.file.objects,
+      withoutDisplay.file.schema_json.price_groups,
+    )
+    await flushPromises()
+    editor(wrapper).vm.$emit(
+      'export',
+      withoutDisplay.file.schema_json.canvas,
+      withoutDisplay.file.objects,
+      withoutDisplay.file.schema_json.price_groups,
+    )
+    await flushPromises()
+
+    const storedWithoutDisplay = loadStudioSchemes().find(document => document.id === withoutDisplay.id)
+    expect(storedWithoutDisplay?.file.schema_json.display).toBeUndefined()
+    expect(Object.hasOwn(storedWithoutDisplay?.file.schema_json ?? {}, 'display')).toBe(false)
+    expect(exportedBlob).toBeInstanceOf(Blob)
+    const exportedWithoutDisplay = JSON.parse(await exportedBlob!.text())
+    expect(Object.hasOwn(exportedWithoutDisplay.schema_json, 'display')).toBe(false)
+
+    await wrapper.findAll('[data-testid="studio-document"]')[1].find('button').trigger('click')
+
+    editor(wrapper).vm.$emit(
+      'save',
+      withDisplay.file.schema_json.canvas,
+      withDisplay.file.objects,
+      withDisplay.file.schema_json.price_groups,
+    )
+    await flushPromises()
+    editor(wrapper).vm.$emit(
+      'export',
+      withDisplay.file.schema_json.canvas,
+      withDisplay.file.objects,
+      withDisplay.file.schema_json.price_groups,
+    )
+    await flushPromises()
+
+    const storedWithDisplay = loadStudioSchemes().find(document => document.id === withDisplay.id)
+    expect(storedWithDisplay?.file.schema_json.display).toEqual({
+      section_contents: 'after_zoom',
+      sector_price_labels: true,
+    })
+    expect(exportedBlob).toBeInstanceOf(Blob)
+    const exportedWithDisplay = JSON.parse(await exportedBlob!.text())
+    expect(exportedWithDisplay.schema_json.display).toEqual({
+      section_contents: 'after_zoom',
+      sector_price_labels: true,
+    })
+  })
+
   it('remounts the package editor when another document is selected', async () => {
     saveStudioSchemes([
       createStudioScheme('Партер'),

@@ -179,6 +179,7 @@ function updateEditorState(
   return updateActiveFile(file => ({
     ...file,
     schema_json: {
+      ...file.schema_json,
       canvas,
       price_groups: priceGroups,
       sections: [],
