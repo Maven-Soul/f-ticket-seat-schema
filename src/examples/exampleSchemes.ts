@@ -79,21 +79,44 @@ function zone(key: string, label: string, group: string | null, points: number[]
   }
 }
 
-function block(key: string, type: 'stage' | 'dancefloor', label: string, x: number, y: number, width: number, height: number, group?: PriceGroup): SeatMapObject {
+function block(key: string, label: string, x: number, y: number, width: number, height: number): SeatMapObject {
   return {
     external_key: key,
-    type,
+    type: 'stage',
     label,
     x,
     y,
     width,
     height,
     rotation: 0,
-    z_index: type === 'stage' ? 1 : 2,
+    z_index: 1,
     style: null,
-    color: group?.color ?? '#64748b',
-    ...(group ? { price: group.price_amount, price_group_key: group.key } : {}),
+    color: '#64748b',
   }
+}
+
+function dancefloorArea(next: (type: string) => string, x: number, y: number, width: number, height: number, group: PriceGroup): SeatMapObject[] {
+  const zoneKey = next('zone')
+
+  return [
+    zone(zoneKey, 'Танцпол', 'Танцпол', rectPoints(x, y, width, height)),
+    {
+      external_key: next('dancefloor'),
+      type: 'dancefloor',
+      label: 'Танцпол',
+      sector_key: zoneKey,
+      x: x + width / 2,
+      y: y + height / 2,
+      width: null,
+      height: null,
+      rotation: 0,
+      z_index: 4,
+      style: { radius: 8 },
+      color: group.color,
+      price: group.price_amount,
+      price_group_key: group.key,
+    },
+  ]
 }
 
 function studioFile(
@@ -122,8 +145,8 @@ function clubSmall(): StudioSchemeFile {
   const standard: PriceGroup = { key: 'standard', name: 'Стандарт', color: '#2563eb', price_amount: 150000 }
   const vip: PriceGroup = { key: 'vip', name: 'VIP', color: '#e11d48', price_amount: 300000 }
   const objects: SeatMapObject[] = [
-    block(next('stage'), 'stage', 'Сцена', 300, 40, 400, 80),
-    block(next('dancefloor'), 'dancefloor', 'Танцпол', 300, 160, 400, 220, standard),
+    block(next('stage'), 'Сцена', 300, 40, 400, 80),
+    ...dancefloorArea(next, 300, 160, 400, 220, standard),
   ]
 
   for (const [label, x, group] of [['Ложа A', 80, vip], ['Ложа B', 400, standard], ['Ложа C', 720, vip]] as const) {
@@ -143,7 +166,7 @@ function restaurantTables(): StudioSchemeFile {
   const next = keyFactory()
   const standard: PriceGroup = { key: 'standard', name: 'Зал', color: '#2563eb', price_amount: 250000 }
   const vip: PriceGroup = { key: 'vip', name: 'VIP', color: '#e11d48', price_amount: 450000 }
-  const objects: SeatMapObject[] = [block(next('stage'), 'stage', 'Сцена', 350, 30, 300, 70)]
+  const objects: SeatMapObject[] = [block(next('stage'), 'Сцена', 350, 30, 300, 70)]
 
   for (let index = 0; index < 4; index++) {
     objects.push(...priced(generateRoundTable({ sectorKey: '', seats: 6, tableRadius: 36 }, { x: 170 + index * 220, y: 220 }, next, index + 1), standard))
@@ -159,7 +182,7 @@ function theatre(): StudioSchemeFile {
   const amphitheatre: PriceGroup = { key: 'amphitheatre', name: 'Амфитеатр', color: '#f59e0b', price_amount: 250000 }
   const balcony: PriceGroup = { key: 'balcony', name: 'Балкон', color: '#2563eb', price_amount: 150000 }
   const center = { x: 700, y: 100 }
-  const objects: SeatMapObject[] = [block(next('stage'), 'stage', 'Сцена', 450, 60, 500, 90)]
+  const objects: SeatMapObject[] = [block(next('stage'), 'Сцена', 450, 60, 500, 90)]
 
   const parterKey = next('zone')
   objects.push(zone(parterKey, 'Партер', 'Нижний уровень', rectPoints(380, 180, 640, 380)))
@@ -206,8 +229,8 @@ function arena(): StudioSchemeFile {
   const center = { x: 1400, y: 1400 }
   const spacing = 20
   const objects: SeatMapObject[] = [
-    block(next('stage'), 'stage', 'Сцена', 1200, 1030, 400, 80),
-    block(next('dancefloor'), 'dancefloor', 'Танцпол', 1120, 1130, 560, 450, dance),
+    block(next('stage'), 'Сцена', 1200, 1030, 400, 80),
+    ...dancefloorArea(next, 1120, 1130, 560, 450, dance),
   ]
   const tiers = [
     { prefix: 1, group: 'Первый ярус', zoneInner: 500, zoneOuter: 860, seatInner: 520, rows: 17 },

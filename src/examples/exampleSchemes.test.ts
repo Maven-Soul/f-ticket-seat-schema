@@ -52,7 +52,7 @@ describe('example schemes', () => {
     expect(seats(examples.theatre)).toBeGreaterThan(500)
     expect(seats(examples.arena)).toBeGreaterThan(8000)
     expect(new Set(examples.arena.objects.filter(object => object.type === 'zone').map(object => object.sector_group)))
-      .toEqual(new Set(['Первый ярус', 'Второй ярус']))
+      .toEqual(new Set(['Первый ярус', 'Второй ярус', 'Танцпол']))
   })
 
   it('keeps the arena under the 5 MB admin upload limit', () => {
