@@ -25,8 +25,9 @@ vi.mock('@fpass/seat-map/studio', async () => {
         initialDisplay: { type: Object, default: null },
         storageKey: { type: String, default: null },
         externalFileHandling: { type: Boolean, default: false },
+        buyerPreviewEnabled: { type: Boolean, default: false },
       },
-      emits: ['save', 'export'],
+      emits: ['save', 'export', 'buyer-preview'],
       setup() {
         const instance = ++editorMounts.count
         return () => h('div', {
@@ -611,5 +612,47 @@ describe('standalone Studio document manager', () => {
     expect(loadStudioSchemes().map(document => document.file.scheme.name)).toEqual(['Балкон'])
     expect((wrapper.get('[data-testid="scheme-name"]').element as HTMLInputElement).value).toBe('Балкон')
     expect(editor(wrapper).props('initialCanvas')).toEqual(second.file.schema_json.canvas)
+  })
+
+  it('stores a buyer preview snapshot and opens the buyer simulation tab', async () => {
+    const existing = createStudioScheme('Партер')
+    saveStudioSchemes([existing])
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    const wrapper = mount(App)
+    const file = studioFile('Партер')
+    const display = { section_contents: 'after_zoom' as const, sector_price_labels: true }
+
+    expect(editor(wrapper).props('buyerPreviewEnabled')).toBe(true)
+
+    editor(wrapper).vm.$emit('buyer-preview', file.schema_json.canvas, file.objects, file.schema_json.price_groups, display)
+    await flushPromises()
+
+    const stored = JSON.parse(localStorage.getItem(`fpass-scheme-studio:buyer-preview:${existing.id}`)!)
+    expect(stored).toEqual({
+      name: 'Партер',
+      canvas: file.schema_json.canvas,
+      objects: file.objects,
+      priceGroups: file.schema_json.price_groups,
+      display,
+      createdAt: expect.any(String),
+    })
+    expect(open).toHaveBeenCalledWith(`${window.location.href.split('#')[0]}#/buyer/${existing.id}`, '_blank')
+  })
+
+  it('shows the persistence error and does not open the tab when the snapshot cannot be stored', async () => {
+    const backingStorage = localStorage
+    saveStudioSchemes([createStudioScheme('Партер')], backingStorage)
+    vi.stubGlobal('localStorage', new FailingStorage(backingStorage, 'write'))
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    const wrapper = mount(App)
+    const file = studioFile('Партер')
+
+    editor(wrapper).vm.$emit('buyer-preview', file.schema_json.canvas, file.objects, file.schema_json.price_groups, null)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('предпросмотр покупателя')
+    expect(open).not.toHaveBeenCalled()
   })
 })

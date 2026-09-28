@@ -15,9 +15,12 @@ import {
   type StoredStudioScheme,
   type StudioSchemeFile,
 } from './schemes/library'
+import { saveBuyerPreviewSnapshot } from './buyer/snapshot'
+import { buyerPageHash, studioUrl } from './route'
 
 const LOAD_ERROR = 'Не удалось загрузить схемы из локального хранилища. Перезагрузите страницу, чтобы повторить.'
 const SAVE_ERROR = 'Не удалось сохранить схемы в локальном хранилище. Повторите действие.'
+const BUYER_PREVIEW_ERROR = 'Не удалось подготовить предпросмотр покупателя в локальном хранилище. Повторите действие.'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const persistenceError = ref('')
@@ -242,6 +245,38 @@ function exportEditorState(
   }
 }
 
+function openBuyerPreview(
+  canvas: SeatMapCanvasSize,
+  objects: SeatMapObject[],
+  priceGroups: SeatMapPricingGroupOption[],
+  display: SeatMapDisplaySettings | null,
+): void {
+  const document = activeDocument.value
+  if (document === null) {
+    return
+  }
+
+  try {
+    saveBuyerPreviewSnapshot(document.id, {
+      name: document.file.scheme.name,
+      canvas,
+      objects,
+      priceGroups,
+      display,
+      createdAt: new Date().toISOString(),
+    })
+  } catch {
+    persistenceError.value = BUYER_PREVIEW_ERROR
+    return
+  }
+
+  if (persistenceError.value === BUYER_PREVIEW_ERROR) {
+    persistenceError.value = ''
+  }
+
+  window.open(studioUrl(buyerPageHash(document.id)), '_blank')
+}
+
 async function importFile(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -444,8 +479,10 @@ function deleteDocument(id: string): void {
             :initial-price-groups="activeDocument.file.schema_json.price_groups"
             :initial-display="activeDocument.file.schema_json.display ?? null"
             :external-file-handling="true"
+            :buyer-preview-enabled="true"
             @save="saveEditorState"
             @export="exportEditorState"
+            @buyer-preview="openBuyerPreview"
           />
         </section>
 
