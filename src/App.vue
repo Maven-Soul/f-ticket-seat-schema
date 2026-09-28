@@ -4,7 +4,7 @@ import { computed, ref, shallowRef } from 'vue'
 
 import { SeatMapEditor } from '@fpass/seat-map/studio'
 import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
-import type { SeatMapCanvasSize, SeatMapObject } from '@fpass/seat-map/schema'
+import type { SeatMapCanvasSize, SeatMapDisplaySettings, SeatMapObject } from '@fpass/seat-map/schema'
 import {
   canonicalizeStudioSchemeIdentity,
   createStudioScheme,
@@ -171,21 +171,27 @@ function updateEditorState(
   canvas: SeatMapCanvasSize,
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
+  display: SeatMapDisplaySettings | null,
 ): StoredStudioScheme | null {
   if (identityDraftPending.value) {
     return null
   }
 
-  return updateActiveFile(file => ({
-    ...file,
-    schema_json: {
-      ...file.schema_json,
-      canvas,
-      price_groups: priceGroups,
-      sections: [],
-    },
-    objects: withoutLegacyCapacity(objects),
-  }))
+  return updateActiveFile((file) => {
+    const { display: _previousDisplay, ...schema } = file.schema_json
+
+    return {
+      ...file,
+      schema_json: {
+        ...schema,
+        canvas,
+        price_groups: priceGroups,
+        sections: [],
+        ...(display ? { display } : {}),
+      },
+      objects: withoutLegacyCapacity(objects),
+    }
+  })
 }
 
 function filenameFor(file: StudioSchemeFile): string {
@@ -219,16 +225,18 @@ function saveEditorState(
   canvas: SeatMapCanvasSize,
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
+  display: SeatMapDisplaySettings | null,
 ): void {
-  updateEditorState(canvas, objects, priceGroups)
+  updateEditorState(canvas, objects, priceGroups, display)
 }
 
 function exportEditorState(
   canvas: SeatMapCanvasSize,
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
+  display: SeatMapDisplaySettings | null,
 ): void {
-  const document = updateEditorState(canvas, objects, priceGroups)
+  const document = updateEditorState(canvas, objects, priceGroups, display)
   if (document !== null) {
     downloadFile(document.file)
   }
@@ -434,6 +442,7 @@ function deleteDocument(id: string): void {
             :initial-canvas="activeDocument.file.schema_json.canvas"
             :initial-objects="activeDocument.file.objects"
             :initial-price-groups="activeDocument.file.schema_json.price_groups"
+            :initial-display="activeDocument.file.schema_json.display ?? null"
             :external-file-handling="true"
             @save="saveEditorState"
             @export="exportEditorState"

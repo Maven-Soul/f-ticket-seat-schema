@@ -22,6 +22,7 @@ vi.mock('@fpass/seat-map/studio', async () => {
         initialCanvas: { type: Object, required: true },
         initialObjects: { type: Array, required: true },
         initialPriceGroups: { type: Array, required: true },
+        initialDisplay: { type: Object, default: null },
         storageKey: { type: String, default: null },
         externalFileHandling: { type: Boolean, default: false },
       },
@@ -477,6 +478,7 @@ describe('standalone Studio document manager', () => {
       withoutDisplay.file.schema_json.canvas,
       withoutDisplay.file.objects,
       withoutDisplay.file.schema_json.price_groups,
+      null,
     )
     await flushPromises()
     editor(wrapper).vm.$emit(
@@ -484,6 +486,7 @@ describe('standalone Studio document manager', () => {
       withoutDisplay.file.schema_json.canvas,
       withoutDisplay.file.objects,
       withoutDisplay.file.schema_json.price_groups,
+      null,
     )
     await flushPromises()
 
@@ -501,6 +504,7 @@ describe('standalone Studio document manager', () => {
       withDisplay.file.schema_json.canvas,
       withDisplay.file.objects,
       withDisplay.file.schema_json.price_groups,
+      withDisplay.file.schema_json.display,
     )
     await flushPromises()
     editor(wrapper).vm.$emit(
@@ -508,6 +512,7 @@ describe('standalone Studio document manager', () => {
       withDisplay.file.schema_json.canvas,
       withDisplay.file.objects,
       withDisplay.file.schema_json.price_groups,
+      withDisplay.file.schema_json.display,
     )
     await flushPromises()
 
@@ -522,6 +527,56 @@ describe('standalone Studio document manager', () => {
       section_contents: 'after_zoom',
       sector_price_labels: true,
     })
+  })
+
+  it('passes the stored display settings to the editor', async () => {
+    const wrapper = mount(App)
+    const file = studioFile()
+    const imported = {
+      ...file,
+      schema_json: {
+        ...file.schema_json,
+        display: { section_contents: 'after_zoom', sector_price_labels: true },
+      },
+    }
+    await importJson(wrapper, imported)
+
+    expect(editor(wrapper).props('initialDisplay')).toEqual({
+      section_contents: 'after_zoom',
+      sector_price_labels: true,
+    })
+  })
+
+  it('stores the display emitted by the editor and drops it when the editor emits null', async () => {
+    const existing = createStudioScheme('Партер')
+    saveStudioSchemes([existing])
+    const wrapper = mount(App)
+    const file = studioFile('Партер')
+
+    editor(wrapper).vm.$emit(
+      'save',
+      file.schema_json.canvas,
+      file.objects,
+      file.schema_json.price_groups,
+      { section_contents: 'always', sector_price_labels: false },
+    )
+    await flushPromises()
+
+    expect(loadStudioSchemes()[0].file.schema_json.display).toEqual({
+      section_contents: 'always',
+      sector_price_labels: false,
+    })
+
+    editor(wrapper).vm.$emit(
+      'save',
+      file.schema_json.canvas,
+      file.objects,
+      file.schema_json.price_groups,
+      null,
+    )
+    await flushPromises()
+
+    expect(Object.hasOwn(loadStudioSchemes()[0].file.schema_json, 'display')).toBe(false)
   })
 
   it('remounts the package editor when another document is selected', async () => {
