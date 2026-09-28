@@ -55,4 +55,16 @@ describe('StudioRoot hash routing', () => {
     expect(wrapper.get('[data-testid="buyer-frame"]').text()).toBe('doc-1:30')
     expect(wrapper.find('[data-testid="buyer-page"]').exists()).toBe(false)
   })
+
+  it('remounts the buyer frame when the hash switches to another scheme', async () => {
+    window.location.hash = '#/buyer-frame/doc-1?sold=0'
+    const wrapper = mount(StudioRoot)
+    const first = wrapper.findComponent({ name: 'BuyerSimulationFrame' }).vm
+
+    window.location.hash = '#/buyer-frame/doc-2?sold=0'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'BuyerSimulationFrame' }).vm).not.toBe(first)
+  })
 })

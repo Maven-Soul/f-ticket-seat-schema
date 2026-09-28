@@ -25,6 +25,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncHash))
   />
   <BuyerSimulationFrame
     v-else-if="route.view === 'buyer-frame'"
+    :key="route.id"
     :document-id="route.id"
     :sold-percent="route.sold"
   />
