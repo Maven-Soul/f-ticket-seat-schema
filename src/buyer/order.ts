@@ -1,5 +1,5 @@
 import { createSeatMapObjectIndex } from '@fpass/seat-map/runtime'
-import type { SeatMapObject, SeatMapObjectState } from '@fpass/seat-map/schema'
+import { sectorDisplayNames, type SeatMapObject, type SeatMapObjectState } from '@fpass/seat-map/schema'
 
 import { statePriceAmount } from './simulation'
 
@@ -24,15 +24,15 @@ export function formatRubles(amount: number): string {
 
 function sectorNamesByMemberKey(objects: SeatMapObject[]): Map<string, string> {
   const { objectByKey, sellableUnitsByTerritoryKey } = createSeatMapObjectIndex(objects)
+  const sectorNames = sectorDisplayNames(objects)
   const names = new Map<string, string>()
 
   for (const [territoryKey, members] of sellableUnitsByTerritoryKey) {
-    const territory = objectByKey.get(territoryKey)
-    if (territory?.type !== 'zone') {
+    if (objectByKey.get(territoryKey)?.type !== 'zone') {
       continue
     }
 
-    const name = territory.label?.trim() || territoryKey
+    const name = sectorNames.get(territoryKey) ?? territoryKey
     for (const member of members) {
       if (!names.has(member.external_key)) {
         names.set(member.external_key, name)
