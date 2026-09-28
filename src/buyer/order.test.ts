@@ -28,6 +28,15 @@ describe('buyerOrderLines', () => {
     ])
   })
 
+  it('adds admission lines with their quantity after the seats', () => {
+    const lines = buyerOrderLines(objects, [state('a1', 150000), state('floor', 200000)], ['a1'], { floor: 3, missing: 1 })
+
+    expect(lines.map(line => [line.key, line.label, line.amount, line.quantity])).toEqual([
+      ['a1', 'Партер · Ряд 3 · Место 12', 150000, 1],
+      ['floor', 'Танцпол', 600000, 3],
+    ])
+  })
+
   it('formats minor units as whole rubles', () => {
     expect(normalize(formatRubles(150000))).toBe('1 500 ₽')
   })

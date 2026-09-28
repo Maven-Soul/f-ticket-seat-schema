@@ -7,6 +7,8 @@ export interface BuyerOrderLine {
   key: string
   label: string
   amount: number
+  quantity: number
+  adjustable: boolean
 }
 
 const rubles = new Intl.NumberFormat('ru-RU', {
@@ -55,12 +57,13 @@ export function buyerOrderLines(
   objects: SeatMapObject[],
   states: SeatMapObjectState[],
   selectedKeys: string[],
+  admissionCounts: Record<string, number> = {},
 ): BuyerOrderLine[] {
   const objectByKey = new Map(objects.map(object => [object.external_key, object]))
   const stateByKey = new Map(states.map(state => [state.external_key, state]))
   const sectorNames = sectorNamesByMemberKey(objects)
 
-  return selectedKeys.flatMap((key) => {
+  const seatLines = selectedKeys.flatMap((key) => {
     const object = objectByKey.get(key)
     if (!object) {
       return []
@@ -70,6 +73,18 @@ export function buyerOrderLines(
       ? seatLabel(object, sectorNames.get(key))
       : object.label?.trim() || key
 
-    return [{ key, label, amount: statePriceAmount(stateByKey.get(key)) ?? 0 }]
+    return [{ key, label, amount: statePriceAmount(stateByKey.get(key)) ?? 0, quantity: 1, adjustable: false }]
   })
+  const admissionLines = Object.entries(admissionCounts).flatMap(([key, quantity]) => {
+    const object = objectByKey.get(key)
+    if (!object || quantity <= 0) {
+      return []
+    }
+
+    const price = statePriceAmount(stateByKey.get(key)) ?? 0
+
+    return [{ key, label: object.label?.trim() || key, amount: price * quantity, quantity, adjustable: true }]
+  })
+
+  return [...seatLines, ...admissionLines]
 }

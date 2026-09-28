@@ -21,7 +21,7 @@ vi.mock('@fpass/seat-map/booking', async () => {
         showAccessibleList: { type: Boolean, default: true },
         selectedKeys: { type: Array, default: () => [] },
       },
-      emits: ['update:selectedKeys'],
+      emits: ['update:selectedKeys', 'area-activate'],
       setup: () => () => h('div', { 'data-testid': 'booking-experience' }),
     }),
   }
@@ -122,6 +122,31 @@ describe('BuyerSimulationFrame', () => {
 
     expect(booking(wrapper).props('selectedKeys')).toEqual([])
     expect(normalize(wrapper.get('[data-testid="buyer-order-total"]').text())).toBe('0 ₽')
+  })
+
+  it('adds admission tickets from the dancefloor with a quantity and shares the ticket limit', async () => {
+    saveBuyerPreviewSnapshot('doc-1', snapshot)
+    const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
+
+    booking(wrapper).vm.$emit('area-activate', { key: 'floor', state: null })
+    booking(wrapper).vm.$emit('area-activate', { key: 'floor', state: null })
+    booking(wrapper).vm.$emit('update:selectedKeys', ['a1'])
+    await flushPromises()
+
+    const sidebar = wrapper.get('[data-testid="buyer-order-sidebar"]')
+    expect(normalize(sidebar.text())).toContain('Танцпол × 2 — 5 000 ₽')
+    expect(normalize(wrapper.get('[data-testid="buyer-order-total"]').text())).toBe('6 500 ₽')
+    expect(sidebar.text()).toContain('Билетов: 3 из 10')
+    expect(booking(wrapper).props('selectionLimit')).toBe(8)
+
+    await wrapper.get('[data-testid="buyer-order-decrease-floor"]').trigger('click')
+    expect(normalize(sidebar.text())).toContain('Танцпол × 1 — 2 500 ₽')
+
+    await wrapper.get('[data-testid="buyer-order-increase-floor"]').trigger('click')
+    await wrapper.get('[data-testid="buyer-order-decrease-floor"]').trigger('click')
+    await wrapper.get('[data-testid="buyer-order-decrease-floor"]').trigger('click')
+    expect(sidebar.text()).not.toContain('Танцпол')
+    expect(booking(wrapper).props('selectionLimit')).toBe(10)
   })
 
   it('uses a bottom bar with an expandable list on narrow screens', async () => {
