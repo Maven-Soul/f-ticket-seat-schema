@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
 import type { SeatMapObject, SeatMapObjectState } from '@fpass/seat-map/schema'
 
-import { applySimulatedSales, simulatedSectorSummaries } from './simulation'
+import { applySimulatedSales, simulatedAdmissionAreas, simulatedSectorSummaries, withAdmissionAreaStates } from './simulation'
 
 function state(key: string, amount = 150000, purchasable = true): SeatMapObjectState {
   return {
@@ -84,6 +85,105 @@ describe('simulatedSectorSummaries', () => {
     expect(simulatedSectorSummaries(objects, states)).toEqual([
       { sector_key: 'A', price_min_amount: 150000, price_max_amount: 250000, remaining: 2, remaining_display_mode: 'exact' },
       { sector_key: 'B', price_min_amount: null, price_max_amount: null, remaining: 0, remaining_display_mode: 'exact' },
+    ])
+  })
+})
+
+describe('simulatedAdmissionAreas', () => {
+  const priceGroups: SeatMapPricingGroupOption[] = [
+    { key: 'floor', name: 'Стандарт', color: '#f97316', price_amount: 250000 },
+    { key: 'free', name: 'Бесплатно', color: '#22c55e', price_amount: 0 },
+  ]
+
+  function dancefloor(key: string, overrides: Partial<SeatMapObject> = {}): SeatMapObject {
+    return { external_key: key, type: 'dancefloor', label: 'Танцпол', capacity: 200, price_group_key: 'floor', x: 0, y: 0, ...overrides }
+  }
+
+  it('builds one area with a priced offer per dancefloor', () => {
+    const [area, ...rest] = simulatedAdmissionAreas([seat('a1', null), dancefloor('floor')], priceGroups, 0)
+
+    expect(rest).toEqual([])
+    expect(area).toEqual({
+      id: 'admission-area:floor',
+      external_key: 'floor',
+      scheme_object_external_key: 'floor',
+      remaining: 200,
+      remaining_display_mode: 'exact',
+      offers: [{
+        id: 'admission-offer:floor:floor',
+        external_key: 'floor:floor',
+        name: 'Танцпол · Стандарт',
+        description: null,
+        price: { amount: 250000, currency: 'RUB', color: '#f97316', group_key: 'floor' },
+        remaining: 200,
+        min_quantity_per_order: 1,
+        max_quantity_per_order: 10,
+        composition: [],
+        terms: [],
+        purchasable: true,
+      }],
+    })
+  })
+
+  it('names the offer after the dancefloor label and skips dancefloors without a price group', () => {
+    const areas = simulatedAdmissionAreas([
+      dancefloor('main', { label: ' Главный танцпол ' }),
+      dancefloor('unlabelled', { label: null }),
+      dancefloor('unpriced', { price_group_key: null }),
+      dancefloor('unknown', { price_group_key: 'missing' }),
+    ], priceGroups, 0)
+
+    expect(areas.map(area => [area.id, area.offers[0]?.name])).toEqual([
+      ['admission-area:main', 'Главный танцпол · Стандарт'],
+      ['admission-area:unlabelled', 'Танцпол · Стандарт'],
+    ])
+  })
+
+  it('subtracts the simulated sold share from the capacity', () => {
+    const [area] = simulatedAdmissionAreas([dancefloor('floor')], priceGroups, 30)
+
+    expect(area?.remaining).toBe(140)
+    expect(area?.offers[0]?.remaining).toBe(140)
+    expect(area?.offers[0]?.purchasable).toBe(true)
+  })
+
+  it('sells the dancefloor out at 100 percent and never sells free offers', () => {
+    const [soldOut, free] = simulatedAdmissionAreas([
+      dancefloor('floor'),
+      dancefloor('free', { price_group_key: 'free' }),
+    ], priceGroups, 100)
+    const [freeAtZero] = simulatedAdmissionAreas([dancefloor('free', { price_group_key: 'free' })], priceGroups, 0)
+
+    expect(soldOut?.remaining).toBe(0)
+    expect(soldOut?.offers[0]?.purchasable).toBe(false)
+    expect(free?.offers[0]?.purchasable).toBe(false)
+    expect(freeAtZero?.offers[0]?.purchasable).toBe(false)
+  })
+
+  it('leaves the remaining count open when the dancefloor has no capacity', () => {
+    const [open] = simulatedAdmissionAreas([dancefloor('floor', { capacity: null })], priceGroups, 50)
+    const [closed] = simulatedAdmissionAreas([dancefloor('floor', { capacity: null })], priceGroups, 100)
+
+    expect(open?.remaining).toBeNull()
+    expect(open?.offers[0]?.purchasable).toBe(true)
+    expect(closed?.offers[0]?.purchasable).toBe(false)
+  })
+})
+
+describe('withAdmissionAreaStates', () => {
+  it('makes admission objects purchasable only while their area has a purchasable offer', () => {
+    const objects: SeatMapObject[] = [
+      { external_key: 'floor', type: 'dancefloor', label: 'Танцпол', capacity: 100, price_group_key: 'base', x: 0, y: 0 },
+      { external_key: 'full', type: 'dancefloor', label: 'Танцпол', capacity: 0, price_group_key: 'base', x: 0, y: 0 },
+    ]
+    const groups: SeatMapPricingGroupOption[] = [{ key: 'base', name: 'База', color: '#0ea5e9', price_amount: 150000 }]
+    const areas = simulatedAdmissionAreas(objects, groups, 0)
+    const states = [state('a1'), { ...state('floor'), purchasable: false, status: 'sold' }, state('full')]
+
+    expect(withAdmissionAreaStates(states, areas)).toEqual([
+      state('a1'),
+      state('floor'),
+      { ...state('full'), purchasable: false, status: 'sold' },
     ])
   })
 })

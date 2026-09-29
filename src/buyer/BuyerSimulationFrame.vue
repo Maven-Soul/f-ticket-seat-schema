@@ -2,12 +2,17 @@
 import { ChevronDown, ChevronUp, Info, Ticket } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
-import { SeatMapBookingExperience } from '@fpass/seat-map/booking'
+import {
+  reconcileSeatMapAdmissionSelection,
+  SeatMapBookingExperience,
+  seatMapAdmissionSummary,
+  type SeatMapAdmissionSelection,
+} from '@fpass/seat-map/booking'
 import { buyerPreviewStates, hasPurchasablePreviewState } from '@fpass/seat-map/studio'
 
 import BuyerOrderList from './BuyerOrderList.vue'
-import { buyerOrderLines, formatRubles } from './order'
-import { applySimulatedSales, simulatedSectorSummaries } from './simulation'
+import { admissionAreasWithinLimit, admissionLineKey, buyerOrderLines, formatRubles, limitAdmissionSelections } from './order'
+import { applySimulatedSales, simulatedAdmissionAreas, simulatedSectorSummaries, withAdmissionAreaStates } from './simulation'
 import { loadBuyerPreviewSnapshot } from './snapshot'
 
 const props = defineProps<{
@@ -22,7 +27,7 @@ const FALLBACK_CHROME_HEIGHT = 140
 
 const snapshot = shallowRef(loadBuyerPreviewSnapshot(props.documentId))
 const selectedKeys = ref<string[]>([])
-const admissionCounts = ref<Record<string, number>>({})
+const admissionSelections = ref<SeatMapAdmissionSelection[]>([])
 const sheetOpen = ref(false)
 const viewportWidth = ref(window.innerWidth)
 const viewportHeight = ref(window.innerHeight)
@@ -32,17 +37,29 @@ const measuredMapHeight = ref(0)
 const baseStates = computed(() => (
   snapshot.value ? buyerPreviewStates(snapshot.value.objects, snapshot.value.priceGroups) : []
 ))
-const states = computed(() => applySimulatedSales(baseStates.value, props.soldPercent))
+const admissionAreas = computed(() => (
+  snapshot.value ? simulatedAdmissionAreas(snapshot.value.objects, snapshot.value.priceGroups, props.soldPercent) : []
+))
+const states = computed(() => withAdmissionAreaStates(applySimulatedSales(baseStates.value, props.soldPercent), admissionAreas.value))
 const sectorSummaries = computed(() => (
   snapshot.value ? simulatedSectorSummaries(snapshot.value.objects, states.value) : []
 ))
 const hasPrices = computed(() => hasPurchasablePreviewState(baseStates.value))
+const admissionSummary = computed(() => seatMapAdmissionSummary({
+  areas: admissionAreas.value,
+  selections: admissionSelections.value,
+}))
 const orderLines = computed(() => (
-  snapshot.value ? buyerOrderLines(snapshot.value.objects, states.value, selectedKeys.value, admissionCounts.value) : []
+  snapshot.value ? buyerOrderLines(snapshot.value.objects, states.value, selectedKeys.value, admissionSummary.value.rows) : []
 ))
-const admissionTotal = computed(() => Object.values(admissionCounts.value).reduce((sum, count) => sum + count, 0))
+const admissionTotal = computed(() => admissionSummary.value.total_quantity)
 const ticketTotal = computed(() => selectedKeys.value.length + admissionTotal.value)
 const seatSelectionLimit = computed(() => Math.max(0, SELECTION_LIMIT - admissionTotal.value))
+const bookingAdmissionAreas = computed(() => admissionAreasWithinLimit(
+  admissionAreas.value,
+  admissionSummary.value.selections,
+  SELECTION_LIMIT - selectedKeys.value.length,
+))
 const purchasableKeys = computed(() => new Set(states.value.filter(state => state.purchasable).map(state => state.external_key)))
 const totalText = computed(() => formatRubles(orderLines.value.reduce((sum, line) => sum + line.amount, 0)))
 const ticketCountText = computed(() => `${ticketTotal.value} из ${SELECTION_LIMIT}`)
@@ -55,26 +72,24 @@ const sheetToggleLabel = computed(() => (sheetOpen.value ? 'Скрыть выб�
 
 watch(purchasableKeys, (purchasable) => {
   selectedKeys.value = selectedKeys.value.filter(key => purchasable.has(key))
-  admissionCounts.value = Object.fromEntries(Object.entries(admissionCounts.value).filter(([key]) => purchasable.has(key)))
+})
+
+watch(admissionAreas, (areas) => {
+  admissionSelections.value = reconcileSeatMapAdmissionSelection({ areas, selections: admissionSelections.value })
 })
 
 function clearOrder(): void {
   selectedKeys.value = []
-  admissionCounts.value = {}
+  admissionSelections.value = []
   sheetOpen.value = false
 }
 
-function increaseAdmission(key: string): void {
-  if (!purchasableKeys.value.has(key) || ticketTotal.value >= SELECTION_LIMIT) {
-    return
-  }
-
-  admissionCounts.value = { ...admissionCounts.value, [key]: (admissionCounts.value[key] ?? 0) + 1 }
+function updateAdmissionSelections(selections: SeatMapAdmissionSelection[]): void {
+  admissionSelections.value = limitAdmissionSelections(selections, SELECTION_LIMIT - selectedKeys.value.length)
 }
 
-function decreaseAdmission(key: string): void {
-  const { [key]: current = 0, ...rest } = admissionCounts.value
-  admissionCounts.value = current > 1 ? { ...rest, [key]: current - 1 } : rest
+function removeAdmission(key: string): void {
+  admissionSelections.value = admissionSelections.value.filter(selection => admissionLineKey(selection) !== key)
 }
 
 function syncViewport(): void {
@@ -141,12 +156,14 @@ onBeforeUnmount(() => {
             :canvas="snapshot.canvas"
             :objects="snapshot.objects"
             :states="states"
+            :admission-areas="bookingAdmissionAreas"
+            :admission-selections="admissionSelections"
             :display="snapshot.display"
             :sector-summaries="sectorSummaries"
             :height="mapHeight"
             :selection-limit="seatSelectionLimit"
             :show-accessible-list="false"
-            @area-activate="increaseAdmission($event.key)"
+            @update:admission-selections="updateAdmissionSelections"
           />
 
           <div
@@ -166,7 +183,7 @@ onBeforeUnmount(() => {
                 Очистить
               </button>
             </div>
-            <BuyerOrderList :lines="orderLines" @increase="increaseAdmission" @decrease="decreaseAdmission" />
+            <BuyerOrderList :lines="orderLines" @remove="removeAdmission" />
           </div>
         </section>
 
@@ -191,7 +208,7 @@ onBeforeUnmount(() => {
             </button>
           </header>
           <div class="min-h-0 flex-1 overflow-y-auto p-4">
-            <BuyerOrderList :lines="orderLines" @increase="increaseAdmission" @decrease="decreaseAdmission" />
+            <BuyerOrderList :lines="orderLines" @remove="removeAdmission" />
           </div>
           <footer class="grid gap-3 border-t border-slate-200 bg-white p-4">
             <div class="flex items-baseline justify-between gap-3">

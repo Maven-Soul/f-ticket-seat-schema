@@ -6,8 +6,10 @@ import { saveBuyerPreviewSnapshot, type BuyerPreviewSnapshot } from './snapshot'
 
 vi.mock('@fpass/seat-map/booking', async () => {
   const { defineComponent, h } = await vi.importActual<typeof import('vue')>('vue')
+  const actual = await vi.importActual<typeof import('@fpass/seat-map/booking')>('@fpass/seat-map/booking')
 
   return {
+    ...actual,
     SeatMapBookingExperience: defineComponent({
       name: 'SeatMapBookingExperience',
       props: {
@@ -20,8 +22,10 @@ vi.mock('@fpass/seat-map/booking', async () => {
         selectionLimit: { type: Number, default: null },
         showAccessibleList: { type: Boolean, default: true },
         selectedKeys: { type: Array, default: () => [] },
+        admissionAreas: { type: Array, default: () => [] },
+        admissionSelections: { type: Array, default: () => [] },
       },
-      emits: ['update:selectedKeys', 'area-activate'],
+      emits: ['update:selectedKeys', 'update:admissionSelections', 'area-activate'],
       setup: () => () => h('div', { 'data-testid': 'booking-experience' }),
     }),
   }
@@ -34,17 +38,23 @@ const snapshot: BuyerPreviewSnapshot = {
     { external_key: 'A', type: 'zone', label: 'Партер', x: 0, y: 0, width: 100, height: 100 },
     { external_key: 'a1', type: 'seat', label: null, row: '3', number: '12', sector_key: 'A', price_group_key: 'base', x: 5000, y: 5000 },
     { external_key: 'a2', type: 'seat', label: null, row: '3', number: '13', sector_key: 'A', price_group_key: 'base', x: 5000, y: 5000 },
-    { external_key: 'floor', type: 'dancefloor', label: 'Танцпол', price_group_key: 'floor', x: 5000, y: 5000 },
+    { external_key: 'floor', type: 'dancefloor', label: 'Танцпол', capacity: 100, price_group_key: 'floor', x: 5000, y: 5000 },
   ],
   priceGroups: [
     { key: 'base', name: 'Базовая', color: '#0ea5e9', price_amount: 150000 },
-    { key: 'floor', name: 'Танцпол', color: '#f97316', price_amount: 250000 },
+    { key: 'floor', name: 'Стандарт', color: '#f97316', price_amount: 250000 },
   ],
   display: { section_contents: 'after_zoom', sector_price_labels: true },
   createdAt: '2026-09-29T10:00:00.000Z',
 }
 
 const normalize = (value: string) => value.replace(/\s+/g, ' ')
+const FLOOR_AREA = 'admission-area:floor'
+const FLOOR_OFFER = 'admission-offer:floor:floor'
+
+function floorSelection(quantity: number) {
+  return { area_id: FLOOR_AREA, offer_variant_id: FLOOR_OFFER, quantity }
+}
 
 function setViewport(width: number, height: number): void {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
@@ -108,12 +118,13 @@ describe('BuyerSimulationFrame', () => {
     saveBuyerPreviewSnapshot('doc-1', snapshot)
     const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
 
-    booking(wrapper).vm.$emit('update:selectedKeys', ['a1', 'floor'])
+    booking(wrapper).vm.$emit('update:selectedKeys', ['a1'])
+    booking(wrapper).vm.$emit('update:admissionSelections', [floorSelection(1)])
     await flushPromises()
 
     const sidebar = wrapper.get('[data-testid="buyer-order-sidebar"]')
     expect(normalize(sidebar.text())).toContain('Партер · Ряд 3 · Место 12 — 1 500 ₽')
-    expect(normalize(sidebar.text())).toContain('Танцпол — 2 500 ₽')
+    expect(normalize(sidebar.text())).toContain('Танцпол · Стандарт × 1 — 2 500 ₽')
     expect(normalize(wrapper.get('[data-testid="buyer-order-total"]').text())).toBe('4 000 ₽')
     expect(wrapper.get('[data-testid="buyer-checkout"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-testid="buyer-order-bar"]').exists()).toBe(false)
@@ -121,32 +132,60 @@ describe('BuyerSimulationFrame', () => {
     await wrapper.get('[data-testid="buyer-order-clear"]').trigger('click')
 
     expect(booking(wrapper).props('selectedKeys')).toEqual([])
+    expect(booking(wrapper).props('admissionSelections')).toEqual([])
     expect(normalize(wrapper.get('[data-testid="buyer-order-total"]').text())).toBe('0 ₽')
   })
 
-  it('adds admission tickets from the dancefloor with a quantity and shares the ticket limit', async () => {
+  it('passes the dancefloor to the booking map as an admission area with a purchasable state', () => {
+    saveBuyerPreviewSnapshot('doc-1', snapshot)
+    const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 100 } })
+    const map = booking(wrapper)
+    const [area] = map.props('admissionAreas') as { id: string, scheme_object_external_key: string, remaining: number, offers: { id: string, name: string, purchasable: boolean }[] }[]
+
+    expect(area).toMatchObject({ id: FLOOR_AREA, scheme_object_external_key: 'floor', remaining: 0 })
+    expect(area?.offers.map(offer => [offer.id, offer.name, offer.purchasable])).toEqual([[FLOOR_OFFER, 'Танцпол · Стандарт', false]])
+
+    const open = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
+    const floorState = (booking(open).props('states') as { external_key: string, purchasable: boolean }[])
+      .find(state => state.external_key === 'floor')
+    expect(floorState?.purchasable).toBe(true)
+  })
+
+  it('lists admission selections from the picker, removes them and shares the ticket limit', async () => {
     saveBuyerPreviewSnapshot('doc-1', snapshot)
     const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
 
-    booking(wrapper).vm.$emit('area-activate', { key: 'floor', state: null })
-    booking(wrapper).vm.$emit('area-activate', { key: 'floor', state: null })
+    booking(wrapper).vm.$emit('update:admissionSelections', [floorSelection(2)])
     booking(wrapper).vm.$emit('update:selectedKeys', ['a1'])
     await flushPromises()
 
     const sidebar = wrapper.get('[data-testid="buyer-order-sidebar"]')
-    expect(normalize(sidebar.text())).toContain('Танцпол × 2 — 5 000 ₽')
+    expect(normalize(sidebar.text())).toContain('Танцпол · Стандарт × 2 — 5 000 ₽')
     expect(normalize(wrapper.get('[data-testid="buyer-order-total"]').text())).toBe('6 500 ₽')
     expect(sidebar.text()).toContain('Билетов: 3 из 10')
     expect(booking(wrapper).props('selectionLimit')).toBe(8)
+    const [limitedArea] = booking(wrapper).props('admissionAreas') as { offers: { max_quantity_per_order: number }[] }[]
+    expect(limitedArea?.offers[0]?.max_quantity_per_order).toBe(9)
 
-    await wrapper.get('[data-testid="buyer-order-decrease-floor"]').trigger('click')
-    expect(normalize(sidebar.text())).toContain('Танцпол × 1 — 2 500 ₽')
+    await wrapper.get(`[data-testid="buyer-order-remove-${FLOOR_AREA}:${FLOOR_OFFER}"]`).trigger('click')
 
-    await wrapper.get('[data-testid="buyer-order-increase-floor"]').trigger('click')
-    await wrapper.get('[data-testid="buyer-order-decrease-floor"]').trigger('click')
-    await wrapper.get('[data-testid="buyer-order-decrease-floor"]').trigger('click')
+    expect(booking(wrapper).props('admissionSelections')).toEqual([])
     expect(sidebar.text()).not.toContain('Танцпол')
     expect(booking(wrapper).props('selectionLimit')).toBe(10)
+  })
+
+  it('trims admission tickets that do not fit next to the selected seats', async () => {
+    saveBuyerPreviewSnapshot('doc-1', snapshot)
+    const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
+
+    booking(wrapper).vm.$emit('update:selectedKeys', ['a1', 'a2'])
+    await flushPromises()
+    booking(wrapper).vm.$emit('update:admissionSelections', [floorSelection(10)])
+    await flushPromises()
+
+    expect(booking(wrapper).props('admissionSelections')).toEqual([floorSelection(8)])
+    expect(wrapper.get('[data-testid="buyer-order-sidebar"]').text()).toContain('Билетов: 10 из 10')
+    expect(booking(wrapper).props('selectionLimit')).toBe(2)
   })
 
   it('uses a bottom bar with an expandable list on narrow screens', async () => {

@@ -1,9 +1,11 @@
-import type { SeatMapBookingSectorSummary } from '@fpass/seat-map/booking'
+import type { SeatMapAdmissionArea, SeatMapBookingSectorSummary } from '@fpass/seat-map/booking'
+import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
 import { createSeatMapObjectIndex } from '@fpass/seat-map/runtime'
 import type { SeatMapObject, SeatMapObjectState } from '@fpass/seat-map/schema'
 
 const FNV_OFFSET_BASIS = 0x811c9dc5
 const FNV_PRIME = 0x01000193
+const ADMISSION_MAX_PER_ORDER = 10
 
 function fnv1a(value: string): number {
   let hash = FNV_OFFSET_BASIS
@@ -61,4 +63,64 @@ export function simulatedSectorSummaries(
   }
 
   return summaries
+}
+
+export function simulatedAdmissionAreas(
+  objects: SeatMapObject[],
+  priceGroups: SeatMapPricingGroupOption[],
+  soldPercent: number,
+): SeatMapAdmissionArea[] {
+  const groupByKey = new Map(priceGroups.map(group => [group.key, group]))
+
+  return objects.flatMap<SeatMapAdmissionArea>((object) => {
+    const group = object.type === 'dancefloor' && object.price_group_key ? groupByKey.get(object.price_group_key) : undefined
+    if (!group) {
+      return []
+    }
+
+    const key = object.external_key
+    const capacity = typeof object.capacity === 'number' ? Math.max(0, Math.floor(object.capacity)) : null
+    const remaining = capacity === null ? null : capacity - Math.round(capacity * soldPercent / 100)
+    const available = remaining === null ? soldPercent < 100 : remaining > 0
+
+    return [{
+      id: `admission-area:${key}`,
+      external_key: key,
+      scheme_object_external_key: key,
+      remaining,
+      remaining_display_mode: 'exact',
+      offers: [{
+        id: `admission-offer:${key}:${group.key}`,
+        external_key: `${key}:${group.key}`,
+        name: `${object.label?.trim() || 'Танцпол'} · ${group.name}`,
+        description: null,
+        price: { amount: group.price_amount, currency: 'RUB', color: group.color, group_key: group.key },
+        remaining,
+        min_quantity_per_order: 1,
+        max_quantity_per_order: ADMISSION_MAX_PER_ORDER,
+        composition: [],
+        terms: [],
+        purchasable: available && group.price_amount > 0,
+      }],
+    }]
+  })
+}
+
+export function withAdmissionAreaStates(
+  states: SeatMapObjectState[],
+  areas: SeatMapAdmissionArea[],
+): SeatMapObjectState[] {
+  const purchasableByKey = new Map(areas.map(area => [
+    area.scheme_object_external_key,
+    area.offers.some(offer => offer.purchasable),
+  ]))
+
+  return states.map((state) => {
+    const purchasable = purchasableByKey.get(state.external_key)
+    if (purchasable === undefined) {
+      return state
+    }
+
+    return { ...state, purchasable, status: purchasable ? 'available' : 'sold' }
+  })
 }
