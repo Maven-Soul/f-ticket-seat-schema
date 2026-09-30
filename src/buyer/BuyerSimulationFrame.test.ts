@@ -20,6 +20,7 @@ vi.mock('@fpass/seat-map/booking', async () => {
         sectorSummaries: { type: Array, default: () => [] },
         height: { type: Number, default: 520 },
         selectionLimit: { type: Number, default: null },
+        ticketLimit: { type: Number, default: null },
         showAccessibleList: { type: Boolean, default: true },
         selectedKeys: { type: Array, default: () => [] },
         admissionAreas: { type: Array, default: () => [] },
@@ -85,13 +86,14 @@ describe('BuyerSimulationFrame', () => {
     expect(booking(wrapper).exists()).toBe(false)
   })
 
-  it('renders the buyer map with simulated states, sector summaries, display and a selection limit', () => {
+  it('renders the buyer map with simulated states, sector summaries, display and an order ticket limit', () => {
     saveBuyerPreviewSnapshot('doc-1', snapshot)
     const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
     const map = booking(wrapper)
 
     expect(map.props('display')).toEqual(snapshot.display)
-    expect(map.props('selectionLimit')).toBe(10)
+    expect(map.props('ticketLimit')).toBe(10)
+    expect(map.props('selectionLimit')).toBeNull()
     expect(map.props('height')).toBeGreaterThan(0)
     expect((map.props('states') as { purchasable: boolean }[]).every(state => state.purchasable)).toBe(true)
     expect(map.props('sectorSummaries')).toEqual([
@@ -163,29 +165,28 @@ describe('BuyerSimulationFrame', () => {
     expect(normalize(sidebar.text())).toContain('Танцпол · Стандарт × 2 — 5 000 ₽')
     expect(normalize(wrapper.get('[data-testid="buyer-order-total"]').text())).toBe('6 500 ₽')
     expect(sidebar.text()).toContain('Билетов: 3 из 10')
-    expect(booking(wrapper).props('selectionLimit')).toBe(8)
-    const [limitedArea] = booking(wrapper).props('admissionAreas') as { offers: { max_quantity_per_order: number }[] }[]
-    expect(limitedArea?.offers[0]?.max_quantity_per_order).toBe(9)
+    expect(booking(wrapper).props('ticketLimit')).toBe(10)
+    const [area] = booking(wrapper).props('admissionAreas') as { offers: { max_quantity_per_order: number }[] }[]
+    expect(area?.offers[0]?.max_quantity_per_order).toBe(10)
 
     await wrapper.get(`[data-testid="buyer-order-remove-${FLOOR_AREA}:${FLOOR_OFFER}"]`).trigger('click')
 
     expect(booking(wrapper).props('admissionSelections')).toEqual([])
     expect(sidebar.text()).not.toContain('Танцпол')
-    expect(booking(wrapper).props('selectionLimit')).toBe(10)
   })
 
-  it('trims admission tickets that do not fit next to the selected seats', async () => {
+  it('leaves the order limit to the booking map and keeps picker selections as they are', async () => {
     saveBuyerPreviewSnapshot('doc-1', snapshot)
     const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
 
     booking(wrapper).vm.$emit('update:selectedKeys', ['a1', 'a2'])
     await flushPromises()
-    booking(wrapper).vm.$emit('update:admissionSelections', [floorSelection(10)])
+    booking(wrapper).vm.$emit('update:admissionSelections', [floorSelection(8)])
     await flushPromises()
 
     expect(booking(wrapper).props('admissionSelections')).toEqual([floorSelection(8)])
+    expect(booking(wrapper).props('ticketLimit')).toBe(10)
     expect(wrapper.get('[data-testid="buyer-order-sidebar"]').text()).toContain('Билетов: 10 из 10')
-    expect(booking(wrapper).props('selectionLimit')).toBe(2)
   })
 
   it('uses a bottom bar with an expandable list on narrow screens', async () => {

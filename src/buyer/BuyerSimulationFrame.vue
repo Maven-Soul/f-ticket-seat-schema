@@ -11,7 +11,7 @@ import {
 import { buyerPreviewStates, hasPurchasablePreviewState } from '@fpass/seat-map/studio'
 
 import BuyerOrderList from './BuyerOrderList.vue'
-import { admissionAreasWithinLimit, admissionLineKey, buyerOrderLines, formatRubles, limitAdmissionSelections } from './order'
+import { admissionLineKey, buyerOrderLines, formatRubles } from './order'
 import { applySimulatedSales, simulatedAdmissionAreas, simulatedSectorSummaries, withAdmissionAreaStates } from './simulation'
 import { loadBuyerPreviewSnapshot } from './snapshot'
 
@@ -54,12 +54,6 @@ const orderLines = computed(() => (
 ))
 const admissionTotal = computed(() => admissionSummary.value.total_quantity)
 const ticketTotal = computed(() => selectedKeys.value.length + admissionTotal.value)
-const seatSelectionLimit = computed(() => Math.max(0, SELECTION_LIMIT - admissionTotal.value))
-const bookingAdmissionAreas = computed(() => admissionAreasWithinLimit(
-  admissionAreas.value,
-  admissionSummary.value.selections,
-  SELECTION_LIMIT - selectedKeys.value.length,
-))
 const purchasableKeys = computed(() => new Set(states.value.filter(state => state.purchasable).map(state => state.external_key)))
 const totalText = computed(() => formatRubles(orderLines.value.reduce((sum, line) => sum + line.amount, 0)))
 const ticketCountText = computed(() => `${ticketTotal.value} из ${SELECTION_LIMIT}`)
@@ -82,10 +76,6 @@ function clearOrder(): void {
   selectedKeys.value = []
   admissionSelections.value = []
   sheetOpen.value = false
-}
-
-function updateAdmissionSelections(selections: SeatMapAdmissionSelection[]): void {
-  admissionSelections.value = limitAdmissionSelections(selections, SELECTION_LIMIT - selectedKeys.value.length)
 }
 
 function removeAdmission(key: string): void {
@@ -153,17 +143,16 @@ onBeforeUnmount(() => {
         <section ref="mapSection" class="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           <SeatMapBookingExperience
             v-model:selected-keys="selectedKeys"
+            v-model:admission-selections="admissionSelections"
             :canvas="snapshot.canvas"
             :objects="snapshot.objects"
             :states="states"
-            :admission-areas="bookingAdmissionAreas"
-            :admission-selections="admissionSelections"
+            :admission-areas="admissionAreas"
             :display="snapshot.display"
             :sector-summaries="sectorSummaries"
             :height="mapHeight"
-            :selection-limit="seatSelectionLimit"
+            :ticket-limit="SELECTION_LIMIT"
             :show-accessible-list="false"
-            @update:admission-selections="updateAdmissionSelections"
           />
 
           <div

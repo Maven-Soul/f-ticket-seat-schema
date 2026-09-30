@@ -1,4 +1,4 @@
-import type { SeatMapAdmissionArea, SeatMapAdmissionSelection, SeatMapAdmissionSummaryRow } from '@fpass/seat-map/booking'
+import type { SeatMapAdmissionSelection, SeatMapAdmissionSummaryRow } from '@fpass/seat-map/booking'
 import { createSeatMapObjectIndex } from '@fpass/seat-map/runtime'
 import { sectorDisplayNames, type SeatMapObject, type SeatMapObjectState } from '@fpass/seat-map/schema'
 
@@ -89,42 +89,4 @@ export function buyerOrderLines(
   }))
 
   return [...seatLines, ...admissionLines]
-}
-
-export function limitAdmissionSelections(
-  selections: SeatMapAdmissionSelection[],
-  limit: number,
-): SeatMapAdmissionSelection[] {
-  let left = Math.max(0, limit)
-
-  return selections.flatMap((selection) => {
-    const quantity = Math.min(selection.quantity, left)
-    left -= quantity
-
-    return quantity > 0 ? [{ ...selection, quantity }] : []
-  })
-}
-
-export function admissionAreasWithinLimit(
-  areas: SeatMapAdmissionArea[],
-  selections: SeatMapAdmissionSelection[],
-  limit: number,
-): SeatMapAdmissionArea[] {
-  return areas.map((area) => {
-    const otherAreas = selections
-      .filter(selection => selection.area_id !== area.id)
-      .reduce((sum, selection) => sum + selection.quantity, 0)
-    const areaLimit = limit - otherAreas
-
-    return {
-      ...area,
-      offers: area.offers.map(offer => ({
-        ...offer,
-        max_quantity_per_order: Math.max(
-          offer.min_quantity_per_order,
-          Math.min(offer.max_quantity_per_order ?? areaLimit, areaLimit),
-        ),
-      })),
-    }
-  })
 }
