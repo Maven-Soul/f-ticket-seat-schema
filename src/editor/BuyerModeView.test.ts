@@ -45,7 +45,7 @@ describe('BuyerModeView', () => {
 
     expect(wrapper.get('iframe').attributes('src')).toBe(`${base}#/buyer-frame/doc-1?sold=0`)
     expect(wrapper.text()).toContain('1440 · Ноутбук')
-    expect(wrapper.text()).toContain('Продано мест')
+    expect(wrapper.text()).toContain('Продано:')
     expect(wrapper.text()).not.toContain('Обновить из редактора')
   })
 

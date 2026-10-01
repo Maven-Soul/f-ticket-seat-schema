@@ -41,13 +41,13 @@ function updateSimulationSettings(settings: BuyerSimulationSettings): void {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col bg-slate-100 text-slate-900">
-    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-2">
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-slate-200 bg-white px-3 py-2">
       <div class="inline-flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1" role="group" aria-label="Размер экрана покупателя">
         <button
           v-for="option in BUYER_DEVICES"
           :key="option.id"
           type="button"
-          class="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors"
+          class="inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm font-medium transition-colors"
           :class="segmentClass(option.id === deviceId)"
           :aria-pressed="option.id === deviceId"
           @click="deviceId = option.id"
@@ -58,7 +58,7 @@ function updateSimulationSettings(settings: BuyerSimulationSettings): void {
       </div>
 
       <div class="inline-flex items-center gap-2" role="group" aria-label="Продано мест">
-        <span class="text-sm text-slate-500">Продано мест:</span>
+        <span class="text-sm text-slate-500">Продано:</span>
         <div class="inline-flex gap-1 rounded-lg bg-slate-100 p-1">
           <button
             v-for="percent in SOLD_PERCENT_OPTIONS"
@@ -82,8 +82,9 @@ function updateSimulationSettings(settings: BuyerSimulationSettings): void {
         @update:model-value="updateSimulationSettings"
       />
 
-      <span class="ml-auto text-sm tabular-nums text-slate-500">{{ sizeCaption }}</span>
-      <slot name="actions" />
+      <div class="ml-auto flex items-center gap-2">
+        <slot name="actions" />
+      </div>
     </div>
 
     <section
@@ -91,6 +92,9 @@ function updateSimulationSettings(settings: BuyerSimulationSettings): void {
       class="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(circle,rgb(148_163_184/0.35)_1px,transparent_1px)] bg-size-[16px_16px]"
       :class="stageClass"
     >
+      <span class="pointer-events-none absolute right-3 bottom-2 z-10 rounded-md bg-white/85 px-2 py-0.5 text-xs tabular-nums text-slate-500 shadow-sm">
+        {{ sizeCaption }}
+      </span>
       <div class="overflow-hidden bg-white" :class="frameBoxClass" :style="frameBoxStyle">
         <iframe
           :key="frameKey"
