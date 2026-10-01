@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  clearStudioSchemes,
   createStudioScheme,
   loadStudioSchemes,
+  parseStoredStudioScheme,
   parseStudioSchemeFile,
   saveStudioSchemes,
 } from './library'
@@ -133,6 +135,25 @@ describe('studio scheme document library', () => {
     ['a malformed geometry object', () => ({ ...validFile(), objects: [null] })],
   ])('rejects %s instead of casting malformed array members', (_caseName, makeValue) => {
     expect(() => parseStudioSchemeFile(makeValue())).toThrowError(FORMAT_ERROR)
+  })
+
+  it('parses one stored document and rejects a malformed record', () => {
+    const valid = createStudioScheme('Партер')
+    const legacy = { ...valid, file: { ...valid.file, objects: [{ external_key: 'f', type: 'dancefloor', label: 'Т', x: 1, y: 2, capacity: 5 }] } }
+
+    expect(parseStoredStudioScheme(valid)).toEqual(valid)
+    expect(parseStoredStudioScheme(legacy)?.file.objects).toEqual([{ external_key: 'f', type: 'dancefloor', label: 'Т', x: 1, y: 2 }])
+    expect(parseStoredStudioScheme({ ...valid, extra: true })).toBeNull()
+    expect(parseStoredStudioScheme({ ...valid, file: { ...valid.file, objects: [null] } })).toBeNull()
+    expect(parseStoredStudioScheme(null)).toBeNull()
+  })
+
+  it('clears the stored library key', () => {
+    saveStudioSchemes([createStudioScheme('Партер')])
+
+    clearStudioSchemes()
+
+    expect(localStorage.getItem('fpass-scheme-studio:documents:v2')).toBeNull()
   })
 
   it('keeps valid documents when another stored document is corrupt', () => {

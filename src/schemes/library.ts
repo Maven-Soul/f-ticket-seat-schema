@@ -283,6 +283,27 @@ export function createStudioScheme(name = 'Новая схема'): StoredStudio
   }
 }
 
+export function parseStoredStudioScheme(value: unknown): StoredStudioScheme | null {
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, ['id', 'updatedAt', 'file'])
+    || typeof value.id !== 'string'
+    || typeof value.updatedAt !== 'string'
+  ) {
+    return null
+  }
+
+  try {
+    return {
+      id: value.id,
+      updatedAt: value.updatedAt,
+      file: parseStudioSchemeFile(migrateTrustedStoredFile(value.file)),
+    }
+  } catch {
+    return null
+  }
+}
+
 export function loadStudioSchemes(storage: Storage = localStorage): StoredStudioScheme[] {
   const raw = storage.getItem(STORAGE_KEY)
   if (raw === null) {
@@ -295,30 +316,10 @@ export function loadStudioSchemes(storage: Storage = localStorage): StoredStudio
       return []
     }
 
-    const documents: StoredStudioScheme[] = []
-
-    for (const value of values) {
-      try {
-        if (
-          !isRecord(value)
-          || !hasExactKeys(value, ['id', 'updatedAt', 'file'])
-          || typeof value.id !== 'string'
-          || typeof value.updatedAt !== 'string'
-        ) {
-          continue
-        }
-
-        documents.push({
-          id: value.id,
-          updatedAt: value.updatedAt,
-          file: parseStudioSchemeFile(migrateTrustedStoredFile(value.file)),
-        })
-      } catch {
-        continue
-      }
-    }
-
-    return documents
+    return values.flatMap((value) => {
+      const document = parseStoredStudioScheme(value)
+      return document === null ? [] : [document]
+    })
   } catch {
     return []
   }
@@ -329,4 +330,8 @@ export function saveStudioSchemes(
   storage: Storage = localStorage,
 ): void {
   storage.setItem(STORAGE_KEY, JSON.stringify(documents))
+}
+
+export function clearStudioSchemes(storage: Storage = localStorage): void {
+  storage.removeItem(STORAGE_KEY)
 }
