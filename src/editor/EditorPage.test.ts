@@ -155,7 +155,8 @@ describe('EditorPage', () => {
     saveStudioSchemes([document])
     wrapper = await mountPage(document.id)
 
-    expect(wrapper.get('main').classes()).toContain('h-dvh')
+    expect(wrapper.get('main').classes()).toEqual(expect.arrayContaining(['flex', 'h-dvh', 'flex-col']))
+    expect(editor(wrapper).vm.$attrs.class).toBe('min-h-0 flex-1')
     expect(editor(wrapper).props()).toMatchObject({
       initialCanvas: document.file.schema_json.canvas,
       initialObjects: studioFile().objects,

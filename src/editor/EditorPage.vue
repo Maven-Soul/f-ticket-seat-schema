@@ -45,11 +45,12 @@ function setDirty(value: boolean): void {
 </script>
 
 <template>
-  <main v-if="document" class="h-dvh overflow-hidden bg-slate-50 text-slate-900">
+  <main v-if="document" class="flex h-dvh flex-col overflow-hidden bg-slate-50 text-slate-900">
     <SeatMapEditor
       :key="documentId"
       ref="editor"
       v-model:mode="mode"
+      class="min-h-0 flex-1"
       :initial-canvas="document.file.schema_json.canvas"
       :initial-objects="document.file.objects"
       :initial-price-groups="document.file.schema_json.price_groups"
