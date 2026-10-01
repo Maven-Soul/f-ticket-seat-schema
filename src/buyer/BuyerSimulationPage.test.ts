@@ -2,6 +2,7 @@ import { mount, type VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import BuyerSimulationPage from './BuyerSimulationPage.vue'
+import { loadSimulationSettings } from './simulationSettings'
 import { saveBuyerPreviewSnapshot, type BuyerPreviewSnapshot } from './snapshot'
 
 const snapshot: BuyerPreviewSnapshot = {
@@ -74,6 +75,31 @@ describe('BuyerSimulationPage', () => {
 
     expect(wrapper.text()).toContain('Малый зал')
     expect(wrapper.get('iframe').element).not.toBe(initial)
+  })
+
+  it('saves dancefloor categories chosen in the popover for the buyer frame', async () => {
+    saveBuyerPreviewSnapshot('doc-1', {
+      ...snapshot,
+      objects: [{ external_key: 'floor', type: 'dancefloor', label: 'Танцпол', capacity: 100, price_group_key: 'floor', x: 0, y: 0 }],
+      priceGroups: [
+        { key: 'early', name: 'Early bird', color: '#a855f7', price_amount: 120000 },
+        { key: 'floor', name: 'Стандарт', color: '#f97316', price_amount: 250000 },
+      ],
+    })
+    const wrapper = mount(BuyerSimulationPage, { props: { documentId: 'doc-1' }, attachTo: document.body })
+
+    await wrapper.get('[data-testid="dancefloor-categories-trigger"]').trigger('click')
+    await wrapper.get('[data-testid="dancefloor-category-floor-early"]').setValue(true)
+
+    expect(loadSimulationSettings('doc-1')).toEqual({ dancefloorCategories: { floor: ['early', 'floor'] } })
+    expect(wrapper.get<HTMLInputElement>('[data-testid="dancefloor-category-floor-early"]').element.checked).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('hides the dancefloor categories when the scheme has no dancefloors', () => {
+    const wrapper = mount(BuyerSimulationPage, { props: { documentId: 'doc-1' } })
+
+    expect(wrapper.find('[data-testid="dancefloor-categories-trigger"]').exists()).toBe(false)
   })
 
   it('reports a missing snapshot', () => {

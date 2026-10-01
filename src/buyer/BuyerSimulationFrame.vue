@@ -13,6 +13,7 @@ import { buyerPreviewStates, hasPurchasablePreviewState } from '@fpass/seat-map/
 import BuyerOrderList from './BuyerOrderList.vue'
 import { admissionLineKey, buyerOrderLines, formatRubles } from './order'
 import { applySimulatedSales, simulatedAdmissionAreas, simulatedSectorSummaries, withAdmissionAreaStates } from './simulation'
+import { loadSimulationSettings, simulationSettingsKey } from './simulationSettings'
 import { loadBuyerPreviewSnapshot } from './snapshot'
 
 const props = defineProps<{
@@ -26,6 +27,7 @@ const MIN_MAP_HEIGHT = 280
 const FALLBACK_CHROME_HEIGHT = 140
 
 const snapshot = shallowRef(loadBuyerPreviewSnapshot(props.documentId))
+const settings = shallowRef(loadSimulationSettings(props.documentId))
 const selectedKeys = ref<string[]>([])
 const admissionSelections = ref<SeatMapAdmissionSelection[]>([])
 const sheetOpen = ref(false)
@@ -38,7 +40,7 @@ const baseStates = computed(() => (
   snapshot.value ? buyerPreviewStates(snapshot.value.objects, snapshot.value.priceGroups) : []
 ))
 const admissionAreas = computed(() => (
-  snapshot.value ? simulatedAdmissionAreas(snapshot.value.objects, snapshot.value.priceGroups, props.soldPercent) : []
+  snapshot.value ? simulatedAdmissionAreas(snapshot.value.objects, snapshot.value.priceGroups, props.soldPercent, settings.value) : []
 ))
 const states = computed(() => withAdmissionAreaStates(applySimulatedSales(baseStates.value, props.soldPercent), admissionAreas.value))
 const sectorSummaries = computed(() => (
@@ -88,10 +90,17 @@ function syncViewport(): void {
   measuredMapHeight.value = mapSection.value?.clientHeight ?? 0
 }
 
+function syncSettings(event: StorageEvent): void {
+  if (event.key === null || event.key === simulationSettingsKey(props.documentId)) {
+    settings.value = loadSimulationSettings(props.documentId)
+  }
+}
+
 let resizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
   window.addEventListener('resize', syncViewport)
+  window.addEventListener('storage', syncSettings)
   syncViewport()
   if (typeof ResizeObserver !== 'undefined' && mapSection.value) {
     resizeObserver = new ResizeObserver(syncViewport)
@@ -101,6 +110,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', syncViewport)
+  window.removeEventListener('storage', syncSettings)
   resizeObserver?.disconnect()
 })
 </script>

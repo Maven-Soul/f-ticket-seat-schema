@@ -3,7 +3,9 @@ import { RefreshCw } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, type CSSProperties } from 'vue'
 
 import { buyerFrameHash, studioUrl } from '../route'
+import DancefloorCategoriesPopover from './DancefloorCategoriesPopover.vue'
 import { BUYER_DEVICES, fitScale, SOLD_PERCENT_OPTIONS, type BuyerDevice } from './devices'
+import { loadSimulationSettings, saveSimulationSettings, type BuyerSimulationSettings } from './simulationSettings'
 import { loadBuyerPreviewSnapshot } from './snapshot'
 
 const props = defineProps<{
@@ -13,6 +15,7 @@ const props = defineProps<{
 const STAGE_PADDING = 24
 
 const snapshot = shallowRef(loadBuyerPreviewSnapshot(props.documentId))
+const simulationSettings = shallowRef(loadSimulationSettings(props.documentId))
 const deviceId = ref<BuyerDevice['id']>('laptop')
 const soldPercent = ref<number>(0)
 const reloadToken = ref(0)
@@ -49,6 +52,7 @@ const sizeCaption = computed(() => {
     ? 'Во всё окно · 100%'
     : `${size.width} × ${size.height} · масштаб ${Math.round(scale.value * 100)}%`
 })
+const hasDancefloors = computed(() => snapshot.value?.objects.some(object => object.type === 'dancefloor') ?? false)
 const schemeCaption = computed(() => snapshot.value?.name || 'Схема не найдена')
 const snapshotCaption = computed(() => {
   if (!snapshot.value) {
@@ -65,6 +69,11 @@ function segmentClass(active: boolean): string {
   return active
     ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
     : 'text-slate-600 hover:bg-white/60 hover:text-slate-900'
+}
+
+function updateSimulationSettings(settings: BuyerSimulationSettings): void {
+  simulationSettings.value = settings
+  saveSimulationSettings(props.documentId, settings)
 }
 
 function refreshFromEditor(): void {
@@ -147,6 +156,14 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
+
+      <DancefloorCategoriesPopover
+        v-if="snapshot && hasDancefloors"
+        :objects="snapshot.objects"
+        :price-groups="snapshot.priceGroups"
+        :model-value="simulationSettings"
+        @update:model-value="updateSimulationSettings"
+      />
 
       <span class="ml-auto text-sm tabular-nums text-slate-500">{{ sizeCaption }}</span>
     </div>

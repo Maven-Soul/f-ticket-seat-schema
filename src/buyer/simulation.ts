@@ -3,6 +3,8 @@ import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
 import { createSeatMapObjectIndex } from '@fpass/seat-map/runtime'
 import type { SeatMapObject, SeatMapObjectState } from '@fpass/seat-map/schema'
 
+import { dancefloorCategoryKeys, type BuyerSimulationSettings } from './simulationSettings'
+
 const FNV_OFFSET_BASIS = 0x811c9dc5
 const FNV_PRIME = 0x01000193
 const ADMISSION_MAX_PER_ORDER = 10
@@ -69,16 +71,24 @@ export function simulatedAdmissionAreas(
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
   soldPercent: number,
+  settings: BuyerSimulationSettings = { dancefloorCategories: {} },
 ): SeatMapAdmissionArea[] {
   const groupByKey = new Map(priceGroups.map(group => [group.key, group]))
 
   return objects.flatMap<SeatMapAdmissionArea>((object) => {
-    const group = object.type === 'dancefloor' && object.price_group_key ? groupByKey.get(object.price_group_key) : undefined
-    if (!group) {
+    if (object.type !== 'dancefloor') {
+      return []
+    }
+
+    const groups = dancefloorCategoryKeys(object, settings)
+      .map(groupKey => groupByKey.get(groupKey))
+      .filter((group): group is SeatMapPricingGroupOption => group !== undefined)
+    if (groups.length === 0) {
       return []
     }
 
     const key = object.external_key
+    const label = object.label?.trim() || 'Танцпол'
     const capacity = typeof object.capacity === 'number' ? Math.max(0, Math.floor(object.capacity)) : null
     const remaining = capacity === null ? null : capacity - Math.round(capacity * soldPercent / 100)
     const available = remaining === null ? soldPercent < 100 : remaining > 0
@@ -89,10 +99,10 @@ export function simulatedAdmissionAreas(
       scheme_object_external_key: key,
       remaining,
       remaining_display_mode: 'exact',
-      offers: [{
+      offers: groups.map(group => ({
         id: `admission-offer:${key}:${group.key}`,
         external_key: `${key}:${group.key}`,
-        name: `${object.label?.trim() || 'Танцпол'} · ${group.name}`,
+        name: `${label} · ${group.name}`,
         description: null,
         price: { amount: group.price_amount, currency: 'RUB', color: group.color, group_key: group.key },
         remaining,
@@ -101,7 +111,7 @@ export function simulatedAdmissionAreas(
         composition: [],
         terms: [],
         purchasable: available && group.price_amount > 0,
-      }],
+      })),
     }]
   })
 }

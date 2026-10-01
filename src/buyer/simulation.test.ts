@@ -168,6 +168,35 @@ describe('simulatedAdmissionAreas', () => {
     expect(open?.offers[0]?.purchasable).toBe(true)
     expect(closed?.offers[0]?.purchasable).toBe(false)
   })
+
+  it('builds one offer per chosen category in one area', () => {
+    const groups: SeatMapPricingGroupOption[] = [
+      ...priceGroups,
+      { key: 'early', name: 'Early bird', color: '#a855f7', price_amount: 150000 },
+    ]
+    const settings = { dancefloorCategories: { floor: ['early', 'missing', 'floor'] } }
+    const areas = simulatedAdmissionAreas([dancefloor('floor')], groups, 30, settings)
+
+    expect(areas).toHaveLength(1)
+    expect(areas[0]?.id).toBe('admission-area:floor')
+    expect(areas[0]?.offers.map(offer => [offer.id, offer.external_key, offer.name, offer.price.amount, offer.price.color, offer.remaining]))
+      .toEqual([
+        ['admission-offer:floor:early', 'floor:early', 'Танцпол · Early bird', 150000, '#a855f7', 140],
+        ['admission-offer:floor:floor', 'floor:floor', 'Танцпол · Стандарт', 250000, '#f97316', 140],
+      ])
+  })
+
+  it('keeps the area purchasable while any category is and builds areas for dancefloors without an own group', () => {
+    const settings = { dancefloorCategories: { floor: ['free', 'floor'], unpriced: ['floor'] } }
+    const [floor, unpriced] = simulatedAdmissionAreas([
+      dancefloor('floor'),
+      dancefloor('unpriced', { price_group_key: null }),
+    ], priceGroups, 0, settings)
+
+    expect(floor?.offers.map(offer => offer.purchasable)).toEqual([false, true])
+    expect(withAdmissionAreaStates([state('floor', 0, false)], [floor!])[0]?.purchasable).toBe(true)
+    expect(unpriced?.offers.map(offer => offer.name)).toEqual(['Танцпол · Стандарт'])
+  })
 })
 
 describe('withAdmissionAreaStates', () => {

@@ -2,6 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import BuyerSimulationFrame from './BuyerSimulationFrame.vue'
+import { saveSimulationSettings, simulationSettingsKey } from './simulationSettings'
 import { saveBuyerPreviewSnapshot, type BuyerPreviewSnapshot } from './snapshot'
 
 vi.mock('@fpass/seat-map/booking', async () => {
@@ -187,6 +188,50 @@ describe('BuyerSimulationFrame', () => {
     expect(booking(wrapper).props('admissionSelections')).toEqual([floorSelection(8)])
     expect(booking(wrapper).props('ticketLimit')).toBe(10)
     expect(wrapper.get('[data-testid="buyer-order-sidebar"]').text()).toContain('Билетов: 10 из 10')
+  })
+
+  it('offers every chosen dancefloor category and lists the chosen one in the order', async () => {
+    saveBuyerPreviewSnapshot('doc-1', {
+      ...snapshot,
+      priceGroups: [...snapshot.priceGroups, { key: 'early', name: 'Early bird', color: '#a855f7', price_amount: 120000 }],
+    })
+    saveSimulationSettings('doc-1', { dancefloorCategories: { floor: ['early', 'floor'] } })
+    const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
+    const [area] = booking(wrapper).props('admissionAreas') as { id: string, offers: { id: string, name: string }[] }[]
+
+    expect(area?.id).toBe(FLOOR_AREA)
+    expect(area?.offers.map(offer => [offer.id, offer.name])).toEqual([
+      ['admission-offer:floor:early', 'Танцпол · Early bird'],
+      [FLOOR_OFFER, 'Танцпол · Стандарт'],
+    ])
+
+    booking(wrapper).vm.$emit('update:admissionSelections', [
+      { area_id: FLOOR_AREA, offer_variant_id: 'admission-offer:floor:early', quantity: 2 },
+    ])
+    await flushPromises()
+
+    expect(normalize(wrapper.get('[data-testid="buyer-order-sidebar"]').text())).toContain('Танцпол · Early bird × 2 — 2 400 ₽')
+  })
+
+  it('re-reads the dancefloor categories when another window changes them', async () => {
+    saveBuyerPreviewSnapshot('doc-1', {
+      ...snapshot,
+      priceGroups: [...snapshot.priceGroups, { key: 'early', name: 'Early bird', color: '#a855f7', price_amount: 120000 }],
+    })
+    const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
+    const offerNames = () => (booking(wrapper).props('admissionAreas') as { offers: { name: string }[] }[])[0]?.offers.map(offer => offer.name)
+    expect(offerNames()).toEqual(['Танцпол · Стандарт'])
+
+    saveSimulationSettings('doc-1', { dancefloorCategories: { floor: ['early'] } })
+    window.dispatchEvent(new StorageEvent('storage', { key: 'unrelated' }))
+    await flushPromises()
+    expect(offerNames()).toEqual(['Танцпол · Стандарт'])
+
+    window.dispatchEvent(new StorageEvent('storage', { key: simulationSettingsKey('doc-1') }))
+    await flushPromises()
+    expect(offerNames()).toEqual(['Танцпол · Early bird'])
+
+    wrapper.unmount()
   })
 
   it('uses a bottom bar with an expandable list on narrow screens', async () => {
