@@ -1,6 +1,7 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { EXAMPLE_SCHEME_NAMES } from '../examples/exampleSchemes'
 import { createStudioScheme, loadStudioSchemes, saveStudioSchemes, type StoredStudioScheme } from '../schemes/library'
 import { resetSchemeLibrary } from '../schemes/useSchemeLibrary'
 import GalleryPage from './GalleryPage.vue'
@@ -138,7 +139,7 @@ describe('GalleryPage', () => {
     expect(wrapper.text()).toContain('Открыть JSON')
     await button(wrapper, 'Загрузить примеры').trigger('click')
 
-    expect(cardNames(wrapper)).toHaveLength(4)
+    expect(cardNames(wrapper)).toHaveLength(EXAMPLE_SCHEME_NAMES.length)
     expect(wrapper.findAll('[data-testid="gallery-group-title"]').map(title => title.text())).toEqual(['Примеры'])
   })
 })
