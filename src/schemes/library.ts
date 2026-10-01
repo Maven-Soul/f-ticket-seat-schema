@@ -1,5 +1,6 @@
 import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
-import type { SeatMapCanvasSize, SeatMapObject } from '@fpass/seat-map/schema'
+import type { SeatMapCanvasSize, SeatMapDisplaySettings, SeatMapObject } from '@fpass/seat-map/schema'
+import { isSeatMapSectionContentsMode } from '@fpass/seat-map/schema'
 
 export interface StudioSchemeFile {
   format: 'fpass-seat-map'
@@ -12,6 +13,7 @@ export interface StudioSchemeFile {
     canvas: SeatMapCanvasSize
     price_groups: SeatMapPricingGroupOption[]
     sections: []
+    display?: SeatMapDisplaySettings
   }
   objects: SeatMapObject[]
 }
@@ -94,6 +96,33 @@ function isPricingGroup(value: unknown): value is SeatMapPricingGroupOption {
     && isFiniteNumber(value.price_amount)
 }
 
+function isDisplaySettings(value: unknown): value is SeatMapDisplaySettings {
+  return isRecord(value)
+    && hasExactKeys(value, ['section_contents', 'sector_price_labels'])
+    && isSeatMapSectionContentsMode(value.section_contents)
+    && typeof value.sector_price_labels === 'boolean'
+}
+
+function isSectorGroup(value: unknown, type: unknown): boolean {
+  if (value === null) {
+    return true
+  }
+
+  if (typeof value !== 'string' || type !== 'zone') {
+    return false
+  }
+
+  const trimmed = value.trim()
+
+  return trimmed !== '' && Array.from(trimmed).length <= MAX_IDENTITY_CODE_POINTS
+}
+
+function canonicalizeSectorGroup(object: SeatMapObject): SeatMapObject {
+  return typeof object.sector_group === 'string'
+    ? { ...object, sector_group: object.sector_group.trim() }
+    : object
+}
+
 function isSeatMapObject(value: unknown): value is SeatMapObject {
   if (
     !isRecord(value)
@@ -104,6 +133,7 @@ function isSeatMapObject(value: unknown): value is SeatMapObject {
         'row',
         'number',
         'sector_key',
+        'sector_group',
         'is_accessible',
         'view_limited',
         'parent_external_key',
@@ -134,6 +164,7 @@ function isSeatMapObject(value: unknown): value is SeatMapObject {
       .every(key => hasValidOptional(value, key, isNullableFiniteNumber))
     && hasValidOptional(value, 'z_index', isFiniteNumber)
     && hasValidOptional(value, 'style', field => field === null || isRecord(field))
+    && hasValidOptional(value, 'sector_group', field => isSectorGroup(field, value.type))
 }
 
 function invalidFormat(): never {
@@ -170,7 +201,7 @@ export function parseStudioSchemeFile(value: unknown): StudioSchemeFile {
     || typeof value.scheme.name !== 'string'
     || (typeof value.scheme.group_name !== 'string' && value.scheme.group_name !== null)
     || !isRecord(value.schema_json)
-    || !hasExactKeys(value.schema_json, ['canvas', 'price_groups', 'sections'])
+    || !hasExactKeys(value.schema_json, ['canvas', 'price_groups', 'sections'], ['display'])
     || !isRecord(value.schema_json.canvas)
     || !hasExactKeys(value.schema_json.canvas, ['width', 'height'], ['background'])
   ) {
@@ -182,6 +213,8 @@ export function parseStudioSchemeFile(value: unknown): StudioSchemeFile {
   const background = canvas.background
   const priceGroups = value.schema_json.price_groups
   const sections = value.schema_json.sections
+  const hasDisplay = Object.hasOwn(value.schema_json, 'display')
+  const display = value.schema_json.display
   const objects = value.objects
   let scheme: StudioSchemeFile['scheme']
 
@@ -203,6 +236,7 @@ export function parseStudioSchemeFile(value: unknown): StudioSchemeFile {
     || sections.length !== 0
     || !Array.isArray(objects)
     || !objects.every(isSeatMapObject)
+    || (hasDisplay && !isDisplaySettings(display))
   ) {
     return invalidFormat()
   }
@@ -219,8 +253,9 @@ export function parseStudioSchemeFile(value: unknown): StudioSchemeFile {
       },
       price_groups: priceGroups,
       sections: [],
+      ...(hasDisplay ? { display: { ...(display as SeatMapDisplaySettings) } } : {}),
     },
-    objects,
+    objects: objects.map(canonicalizeSectorGroup),
   }
 }
 
@@ -248,6 +283,27 @@ export function createStudioScheme(name = 'Новая схема'): StoredStudio
   }
 }
 
+export function parseStoredStudioScheme(value: unknown): StoredStudioScheme | null {
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, ['id', 'updatedAt', 'file'])
+    || typeof value.id !== 'string'
+    || typeof value.updatedAt !== 'string'
+  ) {
+    return null
+  }
+
+  try {
+    return {
+      id: value.id,
+      updatedAt: value.updatedAt,
+      file: parseStudioSchemeFile(migrateTrustedStoredFile(value.file)),
+    }
+  } catch {
+    return null
+  }
+}
+
 export function loadStudioSchemes(storage: Storage = localStorage): StoredStudioScheme[] {
   const raw = storage.getItem(STORAGE_KEY)
   if (raw === null) {
@@ -260,30 +316,10 @@ export function loadStudioSchemes(storage: Storage = localStorage): StoredStudio
       return []
     }
 
-    const documents: StoredStudioScheme[] = []
-
-    for (const value of values) {
-      try {
-        if (
-          !isRecord(value)
-          || !hasExactKeys(value, ['id', 'updatedAt', 'file'])
-          || typeof value.id !== 'string'
-          || typeof value.updatedAt !== 'string'
-        ) {
-          continue
-        }
-
-        documents.push({
-          id: value.id,
-          updatedAt: value.updatedAt,
-          file: parseStudioSchemeFile(migrateTrustedStoredFile(value.file)),
-        })
-      } catch {
-        continue
-      }
-    }
-
-    return documents
+    return values.flatMap((value) => {
+      const document = parseStoredStudioScheme(value)
+      return document === null ? [] : [document]
+    })
   } catch {
     return []
   }
@@ -294,4 +330,8 @@ export function saveStudioSchemes(
   storage: Storage = localStorage,
 ): void {
   storage.setItem(STORAGE_KEY, JSON.stringify(documents))
+}
+
+export function clearStudioSchemes(storage: Storage = localStorage): void {
+  storage.removeItem(STORAGE_KEY)
 }

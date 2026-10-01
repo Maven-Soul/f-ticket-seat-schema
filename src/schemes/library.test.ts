@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  clearStudioSchemes,
   createStudioScheme,
   loadStudioSchemes,
+  parseStoredStudioScheme,
   parseStudioSchemeFile,
   saveStudioSchemes,
 } from './library'
@@ -135,6 +137,25 @@ describe('studio scheme document library', () => {
     expect(() => parseStudioSchemeFile(makeValue())).toThrowError(FORMAT_ERROR)
   })
 
+  it('parses one stored document and rejects a malformed record', () => {
+    const valid = createStudioScheme('Партер')
+    const legacy = { ...valid, file: { ...valid.file, objects: [{ external_key: 'f', type: 'dancefloor', label: 'Т', x: 1, y: 2, capacity: 5 }] } }
+
+    expect(parseStoredStudioScheme(valid)).toEqual(valid)
+    expect(parseStoredStudioScheme(legacy)?.file.objects).toEqual([{ external_key: 'f', type: 'dancefloor', label: 'Т', x: 1, y: 2 }])
+    expect(parseStoredStudioScheme({ ...valid, extra: true })).toBeNull()
+    expect(parseStoredStudioScheme({ ...valid, file: { ...valid.file, objects: [null] } })).toBeNull()
+    expect(parseStoredStudioScheme(null)).toBeNull()
+  })
+
+  it('clears the stored library key', () => {
+    saveStudioSchemes([createStudioScheme('Партер')])
+
+    clearStudioSchemes()
+
+    expect(localStorage.getItem('fpass-scheme-studio:documents:v2')).toBeNull()
+  })
+
   it('keeps valid documents when another stored document is corrupt', () => {
     const valid = createStudioScheme('Партер')
     const corruptSource = createStudioScheme('Повреждённая схема')
@@ -208,5 +229,46 @@ describe('studio scheme document library', () => {
     ['embedded packages', () => ({ ...validFile(), packages: [] })],
   ])('rejects %s with the v2 format error', (_caseName, makeValue) => {
     expect(() => parseStudioSchemeFile(makeValue())).toThrowError(FORMAT_ERROR)
+  })
+
+  type MutableFile = { schema_json: Record<string, unknown>; objects: Record<string, unknown>[] }
+
+  function mutableFile(): MutableFile {
+    return validFile() as unknown as MutableFile
+  }
+
+  it('keeps optional display settings and trimmed sector tiers', () => {
+    const file = mutableFile()
+    file.schema_json.display = { section_contents: 'after_zoom', sector_price_labels: true }
+    file.objects.push({ external_key: 'zone-1', type: 'zone', label: 'Сектор 101', sector_group: '  Первый ярус ', x: 0, y: 0 })
+
+    const parsed = parseStudioSchemeFile(file)
+
+    expect(parsed.schema_json.display).toEqual({ section_contents: 'after_zoom', sector_price_labels: true })
+    expect(parsed.objects[1]?.sector_group).toBe('Первый ярус')
+  })
+
+  it('omits display when the file has none and accepts a null tier on any object', () => {
+    const file = mutableFile()
+    file.objects.push({ external_key: 'seat-1', type: 'seat', label: null, sector_group: null, x: 0, y: 0 })
+
+    const parsed = parseStudioSchemeFile(file)
+
+    expect(parsed.schema_json).not.toHaveProperty('display')
+    expect(parsed.objects[1]?.sector_group).toBeNull()
+  })
+
+  it.each([
+    ['unknown display mode', (file: MutableFile) => { file.schema_json.display = { section_contents: 'zoom', sector_price_labels: false } }],
+    ['display without the price label flag', (file: MutableFile) => { file.schema_json.display = { section_contents: 'auto' } }],
+    ['an extra display key', (file: MutableFile) => { file.schema_json.display = { section_contents: 'auto', sector_price_labels: false, minimap: true } }],
+    ['a sector tier on a seat', (file: MutableFile) => { file.objects.push({ external_key: 's', type: 'seat', label: null, sector_group: 'Ярус', x: 0, y: 0 }) }],
+    ['a blank sector tier', (file: MutableFile) => { file.objects.push({ external_key: 'z', type: 'zone', label: null, sector_group: '  ', x: 0, y: 0 }) }],
+    ['a sector tier over 255 code points', (file: MutableFile) => { file.objects.push({ external_key: 'z', type: 'zone', label: null, sector_group: 'Я'.repeat(256), x: 0, y: 0 }) }],
+  ])('rejects %s', (_name, mutate) => {
+    const file = mutableFile()
+    mutate(file)
+
+    expect(() => parseStudioSchemeFile(file)).toThrow(FORMAT_ERROR)
   })
 })
