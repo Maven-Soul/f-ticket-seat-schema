@@ -4,13 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetSchemeLibrary } from './schemes/useSchemeLibrary'
 import StudioRoot from './StudioRoot.vue'
 
-vi.mock('./App.vue', async () => {
+vi.mock('./editor/EditorPage.vue', async () => {
   const { defineComponent, h } = await vi.importActual<typeof import('vue')>('vue')
   return {
     default: defineComponent({
-      name: 'App',
+      name: 'EditorPage',
       props: { documentId: { type: String, default: null } },
-      setup: props => () => h('div', { 'data-testid': 'editor-app' }, props.documentId ?? ''),
+      setup: props => () => h('div', { 'data-testid': 'editor-page' }, props.documentId ?? ''),
     }),
   }
 })
@@ -64,12 +64,12 @@ describe('StudioRoot hash routing', () => {
     const wrapper = mount(StudioRoot)
 
     expect(wrapper.find('[data-testid="library-loading"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="editor-app"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="editor-page"]').exists()).toBe(false)
 
     await flushPromises()
 
     expect(wrapper.find('[data-testid="library-loading"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="editor-app"]').text()).toBe('doc-1')
+    expect(wrapper.get('[data-testid="editor-page"]').text()).toBe('doc-1')
   })
 
   it('renders the gallery by default', () => {
@@ -77,7 +77,7 @@ describe('StudioRoot hash routing', () => {
     const wrapper = mount(StudioRoot)
 
     expect(wrapper.find('[data-testid="gallery"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="editor-app"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="editor-page"]').exists()).toBe(false)
   })
 
   it('renders the scheme editor with the routed id and returns to the gallery', async () => {
@@ -85,11 +85,11 @@ describe('StudioRoot hash routing', () => {
     const wrapper = mount(StudioRoot)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="editor-app"]').text()).toBe('doc-1')
+    expect(wrapper.get('[data-testid="editor-page"]').text()).toBe('doc-1')
 
     await navigate('#/')
 
-    expect(wrapper.find('[data-testid="editor-app"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="editor-page"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="gallery"]').exists()).toBe(true)
   })
 
@@ -97,12 +97,12 @@ describe('StudioRoot hash routing', () => {
     window.location.hash = '#/scheme/doc-1'
     const wrapper = mount(StudioRoot)
     await flushPromises()
-    const first = wrapper.findComponent({ name: 'App' }).vm
+    const first = wrapper.findComponent({ name: 'EditorPage' }).vm
 
     await navigate('#/scheme/doc-2')
 
-    expect(wrapper.get('[data-testid="editor-app"]').text()).toBe('doc-2')
-    expect(wrapper.findComponent({ name: 'App' }).vm).not.toBe(first)
+    expect(wrapper.get('[data-testid="editor-page"]').text()).toBe('doc-2')
+    expect(wrapper.findComponent({ name: 'EditorPage' }).vm).not.toBe(first)
   })
 
   it('renders the buyer simulation page and frame for their hashes', async () => {

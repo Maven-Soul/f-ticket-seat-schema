@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
-import App from './App.vue'
 import BuyerSimulationFrame from './buyer/BuyerSimulationFrame.vue'
 import BuyerSimulationPage from './buyer/BuyerSimulationPage.vue'
+import EditorPage from './editor/EditorPage.vue'
 import GalleryPage from './gallery/GalleryPage.vue'
 import { parseStudioRoute } from './route'
 import SchemeLibraryGate from './schemes/SchemeLibraryGate.vue'
@@ -32,7 +32,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncHash))
     :sold-percent="route.sold"
   />
   <SchemeLibraryGate v-else-if="route.view === 'scheme'">
-    <App
+    <EditorPage
       :key="route.id"
       :document-id="route.id"
     />
