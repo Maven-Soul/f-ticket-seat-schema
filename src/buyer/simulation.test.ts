@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import type { SeatMapAdmissionArea } from '@fpass/seat-map/booking'
 import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
 import type { SeatMapObject, SeatMapObjectState } from '@fpass/seat-map/schema'
 
@@ -86,6 +87,20 @@ describe('simulatedSectorSummaries', () => {
       { sector_key: 'A', price_min_amount: 150000, price_max_amount: 250000, remaining: 2, remaining_display_mode: 'exact' },
       { sector_key: 'B', price_min_amount: null, price_max_amount: null, remaining: 0, remaining_display_mode: 'exact' },
     ])
+  })
+
+  it('counts an admission zone by its area remaining instead of one ticket per dancefloor point', () => {
+    const point = (key: string, sectorKey: string): SeatMapObject => ({
+      external_key: key, type: 'dancefloor', label: 'Танцпол', sector_key: sectorKey, x: 50, y: 50,
+    })
+    const area = (key: string, remaining: number | null): SeatMapAdmissionArea => ({
+      id: `admission-area:${key}`, external_key: key, scheme_object_external_key: key, remaining, remaining_display_mode: 'exact', offers: [],
+    })
+    const objects = [zone('D', 'Танцпол'), point('d1', 'D'), zone('E', 'Фан-зона'), point('e1', 'E'), zone('F', 'Без зоны'), point('f1', 'F')]
+    const states = [state('d1', 120000), state('e1', 120000), state('f1', 120000)]
+
+    expect(simulatedSectorSummaries(objects, states, [area('d1', null), area('e1', 180)]).map(summary => summary.remaining))
+      .toEqual([null, 180, null])
   })
 })
 

@@ -103,6 +103,18 @@ describe('BuyerSimulationFrame', () => {
     expect(wrapper.text()).not.toContain('Ценовые группы не заданы')
   })
 
+  it('summarises a dancefloor zone by the simulated admission area remaining', () => {
+    const objects = snapshot.objects.map(object => object.external_key === 'floor' ? { ...object, sector_key: 'D' } : object)
+    saveBuyerPreviewSnapshot('doc-1', {
+      ...snapshot,
+      objects: [...objects, { external_key: 'D', type: 'zone', label: 'Танцпол', x: 4900, y: 4900, width: 200, height: 200 }],
+    })
+    const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 0 } })
+
+    const summaries = booking(wrapper).props('sectorSummaries') as { sector_key: string, remaining: number | null }[]
+    expect(summaries.find(summary => summary.sector_key === 'D')?.remaining).toBe(100)
+  })
+
   it('marks every seat sold at 100 percent', () => {
     saveBuyerPreviewSnapshot('doc-1', snapshot)
     const wrapper = mount(BuyerSimulationFrame, { props: { documentId: 'doc-1', soldPercent: 100 } })

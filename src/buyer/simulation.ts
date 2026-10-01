@@ -36,11 +36,31 @@ export function applySimulatedSales(
   })
 }
 
+function admissionAwareRemaining(
+  members: SeatMapObject[],
+  purchasableCount: number,
+  areaByKey: ReadonlyMap<string, SeatMapAdmissionArea>,
+): number | null {
+  const points = members.filter(member => member.type === 'dancefloor')
+  if (points.length === 0) {
+    return purchasableCount
+  }
+
+  const areaRemaining = points.map(point => areaByKey.get(point.external_key)?.remaining)
+  if (!areaRemaining.every((remaining): remaining is number => typeof remaining === 'number')) {
+    return null
+  }
+
+  return purchasableCount + areaRemaining.reduce((total, remaining) => total + remaining, 0)
+}
+
 export function simulatedSectorSummaries(
   objects: SeatMapObject[],
   states: SeatMapObjectState[],
+  admissionAreas: SeatMapAdmissionArea[] = [],
 ): SeatMapBookingSectorSummary[] {
   const stateByKey = new Map(states.map(state => [state.external_key, state]))
+  const areaByKey = new Map(admissionAreas.map(area => [area.scheme_object_external_key, area]))
   const { objectByKey, sellableUnitsByTerritoryKey } = createSeatMapObjectIndex(objects)
   const summaries: SeatMapBookingSectorSummary[] = []
 
@@ -49,6 +69,9 @@ export function simulatedSectorSummaries(
       continue
     }
 
+    const purchasableSeatCount = members
+      .filter(member => member.type !== 'dancefloor' && stateByKey.get(member.external_key)?.purchasable === true)
+      .length
     const prices = members
       .map(member => stateByKey.get(member.external_key))
       .filter(state => state?.purchasable === true)
@@ -59,7 +82,7 @@ export function simulatedSectorSummaries(
       sector_key: sectorKey,
       price_min_amount: amounts.length > 0 ? Math.min(...amounts) : null,
       price_max_amount: amounts.length > 0 ? Math.max(...amounts) : null,
-      remaining: prices.length,
+      remaining: admissionAwareRemaining(members, purchasableSeatCount, areaByKey),
       remaining_display_mode: 'exact',
     })
   }

@@ -44,7 +44,7 @@ const admissionAreas = computed(() => (
 ))
 const states = computed(() => withAdmissionAreaStates(applySimulatedSales(baseStates.value, props.soldPercent), admissionAreas.value))
 const sectorSummaries = computed(() => (
-  snapshot.value ? simulatedSectorSummaries(snapshot.value.objects, states.value) : []
+  snapshot.value ? simulatedSectorSummaries(snapshot.value.objects, states.value, admissionAreas.value) : []
 ))
 const hasPrices = computed(() => hasPurchasablePreviewState(baseStates.value))
 const admissionSummary = computed(() => seatMapAdmissionSummary({
