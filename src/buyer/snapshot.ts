@@ -10,12 +10,23 @@ export interface BuyerPreviewSnapshot {
   createdAt: string
 }
 
+const SNAPSHOT_KEY_PREFIX = 'fpass-scheme-studio:buyer-preview:'
+
 export function buyerPreviewStorageKey(documentId: string): string {
-  return `fpass-scheme-studio:buyer-preview:${documentId}`
+  return `${SNAPSHOT_KEY_PREFIX}${documentId}`
+}
+
+function removeOtherSnapshots(keep: string): void {
+  const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+  keys
+    .filter((key): key is string => key !== null && key.startsWith(SNAPSHOT_KEY_PREFIX) && key !== keep)
+    .forEach(key => localStorage.removeItem(key))
 }
 
 export function saveBuyerPreviewSnapshot(documentId: string, snapshot: BuyerPreviewSnapshot): void {
-  localStorage.setItem(buyerPreviewStorageKey(documentId), JSON.stringify(snapshot))
+  const key = buyerPreviewStorageKey(documentId)
+  removeOtherSnapshots(key)
+  localStorage.setItem(key, JSON.stringify(snapshot))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -21,6 +21,21 @@ describe('buyer preview snapshot', () => {
     expect(loadBuyerPreviewSnapshot('doc-1')).toEqual(snapshot)
   })
 
+  it('keeps only the snapshot of the scheme being previewed', () => {
+    localStorage.setItem('fpass-scheme-studio:documents:v2', '[]')
+    localStorage.setItem('fpass-scheme-studio:editor-panels', '{}')
+    saveBuyerPreviewSnapshot('doc-1', snapshot)
+    saveBuyerPreviewSnapshot('doc-2', snapshot)
+
+    saveBuyerPreviewSnapshot('doc-3', { ...snapshot, name: 'Балкон' })
+
+    expect(loadBuyerPreviewSnapshot('doc-1')).toBeNull()
+    expect(loadBuyerPreviewSnapshot('doc-2')).toBeNull()
+    expect(loadBuyerPreviewSnapshot('doc-3')?.name).toBe('Балкон')
+    expect(localStorage.getItem('fpass-scheme-studio:documents:v2')).toBe('[]')
+    expect(localStorage.getItem('fpass-scheme-studio:editor-panels')).toBe('{}')
+  })
+
   it('returns null for a missing or malformed snapshot', () => {
     localStorage.setItem(buyerPreviewStorageKey('broken'), '{"name":1}')
     localStorage.setItem(buyerPreviewStorageKey('invalid'), 'not json')
