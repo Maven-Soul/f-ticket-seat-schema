@@ -6,6 +6,7 @@ import BuyerSimulationFrame from './buyer/BuyerSimulationFrame.vue'
 import BuyerSimulationPage from './buyer/BuyerSimulationPage.vue'
 import GalleryPage from './gallery/GalleryPage.vue'
 import { parseStudioRoute } from './route'
+import SchemeLibraryGate from './schemes/SchemeLibraryGate.vue'
 
 const hash = ref(window.location.hash)
 const route = computed(() => parseStudioRoute(hash.value))
@@ -30,10 +31,11 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncHash))
     :document-id="route.id"
     :sold-percent="route.sold"
   />
-  <App
-    v-else-if="route.view === 'scheme'"
-    :key="route.id"
-    :document-id="route.id"
-  />
+  <SchemeLibraryGate v-else-if="route.view === 'scheme'">
+    <App
+      :key="route.id"
+      :document-id="route.id"
+    />
+  </SchemeLibraryGate>
   <GalleryPage v-else />
 </template>

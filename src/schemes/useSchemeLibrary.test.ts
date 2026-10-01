@@ -63,29 +63,41 @@ describe('useSchemeLibrary', () => {
     resetSchemeLibrary()
   })
 
-  it('shares one state between callers', () => {
+  it('shares one state between callers', async () => {
     const first = useSchemeLibrary()
-    const created = first.create()
+    const created = await first.create()
 
     expect(useSchemeLibrary()).toBe(first)
     expect(useSchemeLibrary().documents.value.map(document => document.id)).toEqual([created?.id])
   })
 
-  it('creates and persists a new scheme', () => {
+  it('reports loading until the stored documents are read', async () => {
+    const existing = createStudioScheme('Партер')
+    saveStudioSchemes([existing])
     const library = useSchemeLibrary()
-    const created = library.create()
+
+    expect(library.loading.value).toBe(true)
+    await library.ready
+
+    expect(library.loading.value).toBe(false)
+    expect(library.documents.value.map(document => document.id)).toEqual([existing.id])
+  })
+
+  it('creates and persists a new scheme', async () => {
+    const library = useSchemeLibrary()
+    const created = await library.create()
 
     expect(created?.file.scheme.name).toBe('Новая схема')
     expect(loadStudioSchemes().map(document => document.id)).toEqual([created?.id])
   })
 
-  it('duplicates a scheme under a new id with a copy name', () => {
+  it('duplicates a scheme under a new id with a copy name', async () => {
     const original = createStudioScheme('Партер')
     original.file = withObjects('Партер')
     saveStudioSchemes([original])
     const library = useSchemeLibrary()
 
-    const copy = library.duplicate(original.id)
+    const copy = await library.duplicate(original.id)
 
     expect(copy).not.toBeNull()
     expect(copy?.id).not.toBe(original.id)
@@ -94,47 +106,47 @@ describe('useSchemeLibrary', () => {
     expect(loadStudioSchemes().map(document => document.file.scheme.name)).toEqual(['Партер', 'Партер (копия)'])
   })
 
-  it('keeps the copy name within the identity limit', () => {
+  it('keeps the copy name within the identity limit', async () => {
     const original = createStudioScheme('я'.repeat(255))
     saveStudioSchemes([original])
 
-    const copy = useSchemeLibrary().duplicate(original.id)
+    const copy = await useSchemeLibrary().duplicate(original.id)
 
     expect(Array.from(copy?.file.scheme.name ?? '')).toHaveLength(255)
     expect(copy?.file.scheme.name.endsWith(' (копия)')).toBe(true)
   })
 
-  it('removes only the requested scheme', () => {
+  it('removes only the requested scheme', async () => {
     const first = createStudioScheme('Партер')
     const second = createStudioScheme('Балкон')
     saveStudioSchemes([first, second])
     const library = useSchemeLibrary()
 
-    expect(library.remove(first.id)).toBe(true)
-    expect(library.remove('missing')).toBe(false)
+    expect(await library.remove(first.id)).toBe(true)
+    expect(await library.remove('missing')).toBe(false)
     expect(loadStudioSchemes().map(document => document.id)).toEqual([second.id])
     expect(library.documents.value.map(document => document.id)).toEqual([second.id])
   })
 
-  it('renames with canonical identity and rejects an empty name', () => {
+  it('renames with canonical identity and rejects an empty name', async () => {
     const existing = createStudioScheme('Партер')
     saveStudioSchemes([existing])
     const library = useSchemeLibrary()
 
-    expect(library.rename(existing.id, '  Большой зал ', '  Театры ')).toBe(true)
+    expect(await library.rename(existing.id, '  Большой зал ', '  Театры ')).toBe(true)
     expect(loadStudioSchemes()[0].file.scheme).toEqual({ name: 'Большой зал', group_name: 'Театры' })
 
-    expect(library.rename(existing.id, '   ', null)).toBe(false)
+    expect(await library.rename(existing.id, '   ', null)).toBe(false)
     expect(loadStudioSchemes()[0].file.scheme.name).toBe('Большой зал')
   })
 
-  it('saves editor state into the requested document without legacy capacity', () => {
+  it('saves editor state into the requested document without legacy capacity', async () => {
     const existing = createStudioScheme('Партер')
     saveStudioSchemes([existing])
     const library = useSchemeLibrary()
     const objects: SeatMapObject[] = [{ external_key: 'floor', type: 'dancefloor', label: 'Танцпол', x: 1, y: 2, capacity: 80 }]
 
-    const saved = library.saveEditorState(existing.id, { width: 900, height: 600 }, objects, [], { section_contents: 'always', sector_price_labels: false })
+    const saved = await library.saveEditorState(existing.id, { width: 900, height: 600 }, objects, [], { section_contents: 'always', sector_price_labels: false })
 
     expect(saved?.file.objects).toEqual([{ external_key: 'floor', type: 'dancefloor', label: 'Танцпол', x: 1, y: 2 }])
     expect(loadStudioSchemes()[0].file.schema_json).toEqual({
@@ -143,6 +155,20 @@ describe('useSchemeLibrary', () => {
       sections: [],
       display: { section_contents: 'always', sector_price_labels: false },
     })
+  })
+
+  it('applies queued writes in order without losing changes', async () => {
+    const existing = createStudioScheme('Партер')
+    saveStudioSchemes([existing])
+    const library = useSchemeLibrary()
+
+    await Promise.all([
+      library.rename(existing.id, 'Балкон', null),
+      library.saveEditorState(existing.id, { width: 900, height: 600 }, [], [], null),
+    ])
+
+    expect(loadStudioSchemes()[0].file.scheme.name).toBe('Балкон')
+    expect(loadStudioSchemes()[0].file.schema_json.canvas).toEqual({ width: 900, height: 600 })
   })
 
   it('imports a valid JSON file and reports an invalid one', async () => {
@@ -169,43 +195,47 @@ describe('useSchemeLibrary', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
 
-    expect(useSchemeLibrary().exportDocument(existing.id)).toBe(true)
+    const library = useSchemeLibrary()
+    await library.ready
+
+    expect(library.exportDocument(existing.id)).toBe(true)
 
     expect(click).toHaveBeenCalledTimes(1)
     expect(JSON.parse(await exported!.text())).toEqual(existing.file)
   })
 
-  it('loads the example schemes', () => {
+  it('loads only the small and medium example schemes into localStorage', async () => {
     const library = useSchemeLibrary()
 
-    library.loadExamples()
+    await library.loadExamples()
 
     expect(library.documents.value).toHaveLength(EXAMPLE_SCHEME_NAMES.length)
     expect(new Set(loadStudioSchemes().map(document => document.file.scheme.group_name))).toEqual(new Set(['Примеры']))
   })
 
-  it('reports a persistence error and keeps state when storage rejects writes', () => {
+  it('reports a persistence error and keeps state when storage rejects writes', async () => {
     const existing = createStudioScheme('Партер')
     saveStudioSchemes([existing])
     vi.stubGlobal('localStorage', new FailingStorage(localStorage, 'write'))
     const library = useSchemeLibrary()
 
-    expect(library.create()).toBeNull()
-    expect(library.duplicate(existing.id)).toBeNull()
-    expect(library.remove(existing.id)).toBe(false)
+    expect(await library.create()).toBeNull()
+    expect(await library.duplicate(existing.id)).toBeNull()
+    expect(await library.remove(existing.id)).toBe(false)
     expect(library.persistenceError.value).toBe('Не удалось сохранить схемы в локальном хранилище. Повторите действие.')
     expect(library.documents.value.map(document => document.id)).toEqual([existing.id])
   })
 
-  it('freezes writes after a failed initial read', () => {
+  it('freezes writes after a failed initial read', async () => {
     const backing = localStorage
     saveStudioSchemes([createStudioScheme('Партер')], backing)
     const before = backing.getItem(STORAGE_KEY)
     vi.stubGlobal('localStorage', new FailingStorage(backing, 'read'))
     const library = useSchemeLibrary()
+    await library.ready
 
     expect(library.persistenceError.value).toBe('Не удалось загрузить схемы из локального хранилища. Перезагрузите страницу, чтобы повторить.')
-    expect(library.create()).toBeNull()
+    expect(await library.create()).toBeNull()
     expect(backing.getItem(STORAGE_KEY)).toBe(before)
   })
 })

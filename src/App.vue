@@ -56,8 +56,8 @@ function activate(document: StoredStudioScheme | null): void {
   exportedAt.value = null
 }
 
-function createDocument(): void {
-  const document = library.create()
+async function createDocument(): Promise<void> {
+  const document = await library.create()
   if (document !== null) {
     activate(document)
   }
@@ -67,29 +67,35 @@ function selectDocument(id: string): void {
   activate(library.find(id))
 }
 
-function persistIdentityDraft(): void {
+function draftUnchanged(id: string, name: string, groupName: string): boolean {
+  return activeId.value === id && nameDraft.value === name && groupNameDraft.value === groupName
+}
+
+async function persistIdentityDraft(): Promise<void> {
   identityDraftPending.value = true
+  const name = nameDraft.value
+  const groupName = groupNameDraft.value
   try {
-    canonicalizeStudioSchemeIdentity(nameDraft.value, groupNameDraft.value)
+    canonicalizeStudioSchemeIdentity(name, groupName)
   } catch {
     identityError.value = STUDIO_SCHEME_IDENTITY_ERROR
     return
   }
 
   const id = activeId.value
-  if (id !== null && library.rename(id, nameDraft.value, groupNameDraft.value)) {
+  if (id !== null && await library.rename(id, name, groupName) && draftUnchanged(id, name, groupName)) {
     resetIdentityDraft(library.find(id))
   }
 }
 
 function updateName(event: Event): void {
   nameDraft.value = (event.target as HTMLInputElement).value
-  persistIdentityDraft()
+  void persistIdentityDraft()
 }
 
 function updateGroupName(event: Event): void {
   groupNameDraft.value = (event.target as HTMLInputElement).value
-  persistIdentityDraft()
+  void persistIdentityDraft()
 }
 
 function updateEditorState(
@@ -97,9 +103,9 @@ function updateEditorState(
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
   display: SeatMapDisplaySettings | null,
-): StoredStudioScheme | null {
+): Promise<StoredStudioScheme | null> {
   if (identityDraftPending.value || activeId.value === null) {
-    return null
+    return Promise.resolve(null)
   }
 
   return library.saveEditorState(activeId.value, canvas, objects, priceGroups, display)
@@ -111,16 +117,16 @@ function saveEditorState(
   priceGroups: SeatMapPricingGroupOption[],
   display: SeatMapDisplaySettings | null,
 ): void {
-  updateEditorState(canvas, objects, priceGroups, display)
+  void updateEditorState(canvas, objects, priceGroups, display)
 }
 
-function exportEditorState(
+async function exportEditorState(
   canvas: SeatMapCanvasSize,
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
   display: SeatMapDisplaySettings | null,
-): void {
-  const document = updateEditorState(canvas, objects, priceGroups, display)
+): Promise<void> {
+  const document = await updateEditorState(canvas, objects, priceGroups, display)
   if (document !== null && library.exportDocument(document.id)) {
     exportedAt.value = new Date().toLocaleTimeString('ru-RU', {
       hour: '2-digit',
@@ -172,14 +178,14 @@ async function importFile(event: Event): Promise<void> {
   }
 }
 
-function deleteDocument(id: string): void {
+async function deleteDocument(id: string): Promise<void> {
   const index = documents.value.findIndex(document => document.id === id)
   if (index < 0) {
     return
   }
 
   const document = documents.value[index]
-  if (!confirm(`Удалить схему «${document.file.scheme.name || 'Без названия'}»?`) || !library.remove(id)) {
+  if (!confirm(`Удалить схему «${document.file.scheme.name || 'Без названия'}»?`) || !(await library.remove(id))) {
     return
   }
 

@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { resetSchemeLibrary } from './schemes/useSchemeLibrary'
 import StudioRoot from './StudioRoot.vue'
 
 vi.mock('./App.vue', async () => {
@@ -48,8 +49,27 @@ async function navigate(hash: string): Promise<void> {
 }
 
 describe('StudioRoot hash routing', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    resetSchemeLibrary()
+  })
+
   afterEach(() => {
     window.location.hash = ''
+    resetSchemeLibrary()
+  })
+
+  it('shows the library loading state before the scheme editor', async () => {
+    window.location.hash = '#/scheme/doc-1'
+    const wrapper = mount(StudioRoot)
+
+    expect(wrapper.find('[data-testid="library-loading"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="editor-app"]').exists()).toBe(false)
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="library-loading"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="editor-app"]').text()).toBe('doc-1')
   })
 
   it('renders the gallery by default', () => {
@@ -63,6 +83,7 @@ describe('StudioRoot hash routing', () => {
   it('renders the scheme editor with the routed id and returns to the gallery', async () => {
     window.location.hash = '#/scheme/doc-1'
     const wrapper = mount(StudioRoot)
+    await flushPromises()
 
     expect(wrapper.get('[data-testid="editor-app"]').text()).toBe('doc-1')
 
@@ -75,6 +96,7 @@ describe('StudioRoot hash routing', () => {
   it('remounts the scheme editor when the hash switches to another scheme', async () => {
     window.location.hash = '#/scheme/doc-1'
     const wrapper = mount(StudioRoot)
+    await flushPromises()
     const first = wrapper.findComponent({ name: 'App' }).vm
 
     await navigate('#/scheme/doc-2')

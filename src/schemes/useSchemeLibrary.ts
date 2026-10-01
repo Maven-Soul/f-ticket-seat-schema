@@ -2,16 +2,20 @@ import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
 import type { SeatMapCanvasSize, SeatMapDisplaySettings, SeatMapObject } from '@fpass/seat-map/schema'
 import { ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 
-import { buildExampleSchemes, EXAMPLE_SCHEME_NAMES } from '../examples/exampleSchemes'
+import {
+  buildExampleSchemes,
+  buildLargeExampleSchemes,
+  EXAMPLE_SCHEME_NAMES,
+  LARGE_EXAMPLE_SCHEME_NAMES,
+} from '../examples/exampleSchemes'
 import {
   canonicalizeStudioSchemeIdentity,
   createStudioScheme,
-  loadStudioSchemes,
   parseStudioSchemeFile,
-  saveStudioSchemes,
   type StoredStudioScheme,
   type StudioSchemeFile,
 } from './library'
+import { createSchemeStore, type SchemeChange, type SchemeStore } from './schemeStore'
 
 export const LOAD_ERROR = 'Не удалось загрузить схемы из локального хранилища. Перезагрузите страницу, чтобы повторить.'
 export const SAVE_ERROR = 'Не удалось сохранить схемы в локальном хранилище. Повторите действие.'
@@ -23,21 +27,23 @@ export interface SchemeLibrary {
   documents: ShallowRef<StoredStudioScheme[]>
   persistenceError: Ref<string>
   importError: Ref<string>
+  loading: Ref<boolean>
+  ready: Promise<void>
   find(id: string): StoredStudioScheme | null
-  create(): StoredStudioScheme | null
+  create(): Promise<StoredStudioScheme | null>
   importFile(file: File): Promise<StoredStudioScheme | null>
-  duplicate(id: string): StoredStudioScheme | null
-  remove(id: string): boolean
-  rename(id: string, name: string, groupName: string | null): boolean
+  duplicate(id: string): Promise<StoredStudioScheme | null>
+  remove(id: string): Promise<boolean>
+  rename(id: string, name: string, groupName: string | null): Promise<boolean>
   saveEditorState(
     id: string,
     canvas: SeatMapCanvasSize,
     objects: SeatMapObject[],
     priceGroups: SeatMapPricingGroupOption[],
     display: SeatMapDisplaySettings | null,
-  ): StoredStudioScheme | null
+  ): Promise<StoredStudioScheme | null>
   exportDocument(id: string): boolean
-  loadExamples(): void
+  loadExamples(): Promise<void>
 }
 
 let instance: SchemeLibrary | null = null
@@ -84,30 +90,41 @@ async function readJson(file: File): Promise<unknown> {
   }
 }
 
-function createSchemeLibrary(): SchemeLibrary {
+function createSchemeLibrary(store: SchemeStore): SchemeLibrary {
   const persistenceError = ref('')
   const importError = ref('')
-  let storageAuthoritative = true
-  const documents = shallowRef<StoredStudioScheme[]>(loadDocuments())
+  const loading = ref(true)
+  const documents = shallowRef<StoredStudioScheme[]>([])
+  let storageAuthoritative = false
 
-  function loadDocuments(): StoredStudioScheme[] {
+  async function loadDocuments(): Promise<void> {
     try {
-      return loadStudioSchemes()
+      documents.value = await store.load()
+      storageAuthoritative = true
     } catch {
-      storageAuthoritative = false
       persistenceError.value = LOAD_ERROR
-      return []
+    } finally {
+      loading.value = false
     }
   }
 
-  function persist(nextDocuments: StoredStudioScheme[]): boolean {
+  const ready = loadDocuments()
+  let queue: Promise<unknown> = ready
+
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = queue.then(task)
+    queue = run.catch(() => undefined)
+    return run
+  }
+
+  async function persist(nextDocuments: StoredStudioScheme[], change: SchemeChange): Promise<boolean> {
     if (!storageAuthoritative) {
       persistenceError.value = LOAD_ERROR
       return false
     }
 
     try {
-      saveStudioSchemes(nextDocuments)
+      await store.commit(nextDocuments, change)
       documents.value = nextDocuments
       persistenceError.value = ''
       return true
@@ -131,27 +148,33 @@ function createSchemeLibrary(): SchemeLibrary {
     return file ? { ...document, file } : document
   }
 
-  function append(files: (StudioSchemeFile | undefined)[]): StoredStudioScheme[] | null {
+  async function appendNow(files: (StudioSchemeFile | undefined)[]): Promise<StoredStudioScheme[] | null> {
     const occupied = new Set(documents.value.map(document => document.id))
     const added = files.map(file => uniqueDocument(file, occupied))
 
-    return persist([...documents.value, ...added]) ? added : null
+    return await persist([...documents.value, ...added], { put: added }) ? added : null
   }
 
-  function update(id: string, change: (file: StudioSchemeFile) => StudioSchemeFile): StoredStudioScheme | null {
-    const current = find(id)
-    if (current === null) {
-      return null
-    }
-
-    const updated = { ...current, updatedAt: new Date().toISOString(), file: change(current.file) }
-    const nextDocuments = documents.value.map(document => (document.id === id ? updated : document))
-
-    return persist(nextDocuments) ? updated : null
+  function append(files: (StudioSchemeFile | undefined)[]): Promise<StoredStudioScheme[] | null> {
+    return enqueue(() => appendNow(files))
   }
 
-  function create(): StoredStudioScheme | null {
-    return append([undefined])?.[0] ?? null
+  function update(id: string, change: (file: StudioSchemeFile) => StudioSchemeFile): Promise<StoredStudioScheme | null> {
+    return enqueue(async () => {
+      const current = find(id)
+      if (current === null) {
+        return null
+      }
+
+      const updated = { ...current, updatedAt: new Date().toISOString(), file: change(current.file) }
+      const nextDocuments = documents.value.map(document => (document.id === id ? updated : document))
+
+      return await persist(nextDocuments, { put: [updated] }) ? updated : null
+    })
+  }
+
+  async function create(): Promise<StoredStudioScheme | null> {
+    return (await append([undefined]))?.[0] ?? null
   }
 
   async function importFile(file: File): Promise<StoredStudioScheme | null> {
@@ -163,7 +186,7 @@ function createSchemeLibrary(): SchemeLibrary {
       return null
     }
 
-    const added = append([parsed])?.[0] ?? null
+    const added = (await append([parsed]))?.[0] ?? null
     if (added !== null) {
       importError.value = ''
     }
@@ -171,26 +194,28 @@ function createSchemeLibrary(): SchemeLibrary {
     return added
   }
 
-  function duplicate(id: string): StoredStudioScheme | null {
-    const source = find(id)
-    if (source === null) {
-      return null
-    }
+  function duplicate(id: string): Promise<StoredStudioScheme | null> {
+    return enqueue(async () => {
+      const source = find(id)
+      if (source === null) {
+        return null
+      }
 
-    const file = structuredClone(source.file)
+      const file = structuredClone(source.file)
+      const copy = { ...file, scheme: { ...file.scheme, name: copyName(file.scheme.name) } }
 
-    return append([{ ...file, scheme: { ...file.scheme, name: copyName(file.scheme.name) } }])?.[0] ?? null
+      return (await appendNow([copy]))?.[0] ?? null
+    })
   }
 
-  function remove(id: string): boolean {
-    if (find(id) === null) {
-      return false
-    }
-
-    return persist(documents.value.filter(document => document.id !== id))
+  function remove(id: string): Promise<boolean> {
+    return enqueue(async () => (
+      find(id) !== null
+      && persist(documents.value.filter(document => document.id !== id), { remove: id })
+    ))
   }
 
-  function rename(id: string, name: string, groupName: string | null): boolean {
+  async function rename(id: string, name: string, groupName: string | null): Promise<boolean> {
     let scheme: StudioSchemeFile['scheme']
     try {
       scheme = canonicalizeStudioSchemeIdentity(name, groupName)
@@ -198,7 +223,7 @@ function createSchemeLibrary(): SchemeLibrary {
       return false
     }
 
-    return update(id, file => ({ ...file, scheme })) !== null
+    return await update(id, file => ({ ...file, scheme })) !== null
   }
 
   function saveEditorState(
@@ -207,7 +232,7 @@ function createSchemeLibrary(): SchemeLibrary {
     objects: SeatMapObject[],
     priceGroups: SeatMapPricingGroupOption[],
     display: SeatMapDisplaySettings | null,
-  ): StoredStudioScheme | null {
+  ): Promise<StoredStudioScheme | null> {
     return update(id, (file) => {
       const { display: _previousDisplay, ...schema } = file.schema_json
 
@@ -229,15 +254,20 @@ function createSchemeLibrary(): SchemeLibrary {
     return true
   }
 
-  function loadExamples(): void {
+  async function loadExamples(): Promise<void> {
     const examples = buildExampleSchemes()
-    append(EXAMPLE_SCHEME_NAMES.map(name => examples[name]))
+    const large = store.kind === 'indexeddb' ? buildLargeExampleSchemes() : null
+    const largeFiles = large === null ? [] : LARGE_EXAMPLE_SCHEME_NAMES.map(name => large[name])
+
+    await append([...EXAMPLE_SCHEME_NAMES.map(name => examples[name]), ...largeFiles])
   }
 
   return {
     documents,
     persistenceError,
     importError,
+    loading,
+    ready,
     find,
     create,
     importFile,
@@ -251,7 +281,7 @@ function createSchemeLibrary(): SchemeLibrary {
 }
 
 export function useSchemeLibrary(): SchemeLibrary {
-  instance ??= createSchemeLibrary()
+  instance ??= createSchemeLibrary(createSchemeStore())
   return instance
 }
 

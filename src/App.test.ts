@@ -8,7 +8,7 @@ import {
   saveStudioSchemes,
   type StudioSchemeFile,
 } from './schemes/library'
-import { resetSchemeLibrary } from './schemes/useSchemeLibrary'
+import { resetSchemeLibrary, useSchemeLibrary } from './schemes/useSchemeLibrary'
 
 const editorMounts = vi.hoisted(() => ({ count: 0 }))
 
@@ -150,6 +150,11 @@ async function importJson(wrapper: VueWrapper, value: unknown): Promise<void> {
   await flushPromises()
 }
 
+async function mountApp(): Promise<VueWrapper> {
+  await useSchemeLibrary().ready
+  return mount(App)
+}
+
 function editor(wrapper: VueWrapper) {
   const component = wrapper.findComponent({ name: 'SeatMapEditor' })
   if (!component.exists()) {
@@ -186,13 +191,19 @@ describe('standalone Studio document manager', () => {
   })
 
   it('creates, names and selects independent local documents', async () => {
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     await button(wrapper, 'Создать схему').trigger('click')
+
+    await flushPromises()
     await wrapper.get('[data-testid="scheme-name"]').setValue('Партер')
+    await flushPromises()
 
     await button(wrapper, 'Создать схему').trigger('click')
+
+    await flushPromises()
     await wrapper.get('[data-testid="scheme-name"]').setValue('Балкон')
+    await flushPromises()
 
     const rows = wrapper.findAll('[data-testid="studio-document"]')
     expect(rows).toHaveLength(2)
@@ -211,10 +222,13 @@ describe('standalone Studio document manager', () => {
   it('persists canonical trimmed identity from the Studio inputs', async () => {
     const existing = createStudioScheme('Партер')
     saveStudioSchemes([existing])
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     await wrapper.get('[data-testid="scheme-name"]').setValue('  Новый партер  ')
+
+    await flushPromises()
     await groupNameInput(wrapper).setValue('  Театры  ')
+    await flushPromises()
 
     expect(loadStudioSchemes()[0].file.scheme).toEqual({
       name: 'Новый партер',
@@ -226,10 +240,13 @@ describe('standalone Studio document manager', () => {
     const existing = createStudioScheme('Партер')
     saveStudioSchemes([existing])
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     await wrapper.get('[data-testid="scheme-name"]').setValue('   ')
+
+    await flushPromises()
     await groupNameInput(wrapper).setValue('Новая группа')
+    await flushPromises()
 
     expect(wrapper.text()).toContain('Название схемы обязательно')
     expect(loadStudioSchemes()).toEqual([existing])
@@ -254,9 +271,11 @@ describe('standalone Studio document manager', () => {
     const failingStorage = new FailingStorage(backingStorage, 'write-once')
     vi.stubGlobal('localStorage', failingStorage)
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     await wrapper.get('[data-testid="scheme-name"]').setValue('Балкон')
+
+    await flushPromises()
 
     expect((wrapper.get('[data-testid="scheme-name"]').element as HTMLInputElement).value).toBe('Балкон')
     expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('Не удалось сохранить схемы')
@@ -279,9 +298,11 @@ describe('standalone Studio document manager', () => {
   it('keeps creation uncommitted when durable storage rejects the write', async () => {
     const backingStorage = localStorage
     vi.stubGlobal('localStorage', new FailingStorage(backingStorage, 'write'))
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     await button(wrapper, 'Создать схему').trigger('click')
+
+    await flushPromises()
 
     expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('Не удалось сохранить схемы')
     expect(wrapper.findAll('[data-testid="studio-document"]')).toHaveLength(0)
@@ -295,7 +316,7 @@ describe('standalone Studio document manager', () => {
     saveStudioSchemes([existing], backingStorage)
     vi.stubGlobal('localStorage', new FailingStorage(backingStorage, 'write'))
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
     const changed = studioFile('Партер')
 
     editor(wrapper).vm.$emit(
@@ -322,11 +343,13 @@ describe('standalone Studio document manager', () => {
     vi.stubGlobal('localStorage', failingStorage)
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:studio-export')
 
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     expect(wrapper.get('[data-testid="persistence-error"]').text()).toContain('Не удалось загрузить схемы')
 
     await button(wrapper, 'Создать схему').trigger('click')
+
+    await flushPromises()
     await importJson(wrapper, studioFile('Импорт'))
 
     expect(failingStorage.writes).toBe(0)
@@ -348,7 +371,7 @@ describe('standalone Studio document manager', () => {
     }]
     saveStudioSchemes([legacy])
 
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     expect(wrapper.findAll('[data-testid="studio-document"]')).toHaveLength(1)
     expect(editor(wrapper).props('initialObjects')).toEqual([{
@@ -360,6 +383,8 @@ describe('standalone Studio document manager', () => {
     }])
 
     await wrapper.get('[data-testid="scheme-name"]').setValue('Старая схема сохранена')
+
+    await flushPromises()
 
     const stored = loadStudioSchemes()
     const persisted = JSON.parse(localStorage.getItem('fpass-scheme-studio:documents:v2') ?? '[]')
@@ -384,7 +409,7 @@ describe('standalone Studio document manager', () => {
       .mockReturnValueOnce(FIRST_ID)
       .mockReturnValueOnce(IMPORTED_ID)
 
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
     const imported = studioFile()
     await importJson(wrapper, imported)
 
@@ -398,7 +423,7 @@ describe('standalone Studio document manager', () => {
   it('keeps the selected document when an imported v2 envelope is malformed', async () => {
     const existing = createStudioScheme('Партер')
     saveStudioSchemes([existing])
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     await importJson(wrapper, { ...studioFile('Чужая схема'), offers: [] })
 
@@ -423,7 +448,7 @@ describe('standalone Studio document manager', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
 
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
     await wrapper.findAll('[data-testid="studio-document"]')[1].find('button').trigger('click')
     const file = studioFile('Балкон')
     const editorObjects = file.objects.map(object => ({ ...object, capacity: 80 }))
@@ -475,7 +500,7 @@ describe('standalone Studio document manager', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
 
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     editor(wrapper).vm.$emit(
       'save',
@@ -534,7 +559,7 @@ describe('standalone Studio document manager', () => {
   })
 
   it('passes the stored display settings to the editor', async () => {
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
     const file = studioFile()
     const imported = {
       ...file,
@@ -554,7 +579,7 @@ describe('standalone Studio document manager', () => {
   it('stores the display emitted by the editor and drops it when the editor emits null', async () => {
     const existing = createStudioScheme('Партер')
     saveStudioSchemes([existing])
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
     const file = studioFile('Партер')
 
     editor(wrapper).vm.$emit(
@@ -588,7 +613,7 @@ describe('standalone Studio document manager', () => {
       createStudioScheme('Партер'),
       createStudioScheme('Балкон'),
     ])
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
     const firstInstance = wrapper.get('[data-testid="seat-map-editor"]').attributes('data-instance')
 
     await wrapper.findAll('[data-testid="studio-document"]')[1].find('button').trigger('click')
@@ -604,12 +629,16 @@ describe('standalone Studio document manager', () => {
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true)
     vi.stubGlobal('confirm', confirm)
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
 
     await wrapper.get('[aria-label="Удалить Партер"]').trigger('click')
+
+    await flushPromises()
     expect(loadStudioSchemes()).toHaveLength(2)
 
     await wrapper.get('[aria-label="Удалить Партер"]').trigger('click')
+
+    await flushPromises()
 
     expect(confirm).toHaveBeenCalledTimes(2)
     expect(loadStudioSchemes().map(document => document.file.scheme.name)).toEqual(['Балкон'])
@@ -622,7 +651,7 @@ describe('standalone Studio document manager', () => {
     saveStudioSchemes([existing])
     const open = vi.fn()
     vi.stubGlobal('open', open)
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
     const file = studioFile('Партер')
     const display = { section_contents: 'after_zoom' as const, sector_price_labels: true }
 
@@ -649,7 +678,7 @@ describe('standalone Studio document manager', () => {
     vi.stubGlobal('localStorage', new FailingStorage(backingStorage, 'write'))
     const open = vi.fn()
     vi.stubGlobal('open', open)
-    const wrapper = mount(App)
+    const wrapper = await mountApp()
     const file = studioFile('Партер')
 
     editor(wrapper).vm.$emit('buyer-preview', file.schema_json.canvas, file.objects, file.schema_json.price_groups, null)
