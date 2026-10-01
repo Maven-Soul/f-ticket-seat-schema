@@ -8,6 +8,7 @@ import {
   saveStudioSchemes,
   type StudioSchemeFile,
 } from './schemes/library'
+import { resetSchemeLibrary } from './schemes/useSchemeLibrary'
 
 const editorMounts = vi.hoisted(() => ({ count: 0 }))
 
@@ -172,6 +173,7 @@ function groupNameInput(wrapper: VueWrapper) {
 describe('standalone Studio document manager', () => {
   beforeEach(() => {
     localStorage.clear()
+    resetSchemeLibrary()
     editorMounts.count = 0
     vi.stubGlobal('fetch', vi.fn())
   })
@@ -180,6 +182,7 @@ describe('standalone Studio document manager', () => {
     expect(fetch).not.toHaveBeenCalled()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    resetSchemeLibrary()
   })
 
   it('creates, names and selects independent local documents', async () => {

@@ -1,52 +1,46 @@
 <script setup lang="ts">
-import { FileUp, Layers3, Plus, Trash2 } from '@lucide/vue'
-import { computed, ref, shallowRef } from 'vue'
+import { ArrowLeft, FileUp, Layers3, Plus, Trash2 } from '@lucide/vue'
+import { computed, ref, watch } from 'vue'
 
 import { SeatMapEditor } from '@fpass/seat-map/studio'
 import type { SeatMapPricingGroupOption } from '@fpass/seat-map/pricing'
 import type { SeatMapCanvasSize, SeatMapDisplaySettings, SeatMapObject } from '@fpass/seat-map/schema'
 import {
   canonicalizeStudioSchemeIdentity,
-  createStudioScheme,
-  loadStudioSchemes,
-  parseStudioSchemeFile,
-  saveStudioSchemes,
   STUDIO_SCHEME_IDENTITY_ERROR,
   type StoredStudioScheme,
-  type StudioSchemeFile,
 } from './schemes/library'
+import { useSchemeLibrary } from './schemes/useSchemeLibrary'
 import { saveBuyerPreviewSnapshot } from './buyer/snapshot'
-import { buyerPageHash, studioUrl } from './route'
+import { buyerPageHash, GALLERY_HASH, schemeHash, studioUrl } from './route'
 
-const LOAD_ERROR = 'Не удалось загрузить схемы из локального хранилища. Перезагрузите страницу, чтобы повторить.'
-const SAVE_ERROR = 'Не удалось сохранить схемы в локальном хранилище. Повторите действие.'
+const props = defineProps<{
+  documentId?: string
+}>()
+
 const BUYER_PREVIEW_ERROR = 'Не удалось подготовить предпросмотр покупателя в локальном хранилище. Повторите действие.'
 
+const library = useSchemeLibrary()
+const { documents, persistenceError, importError } = library
 const fileInput = ref<HTMLInputElement | null>(null)
-const persistenceError = ref('')
 const identityError = ref('')
-const storageAuthoritative = ref(true)
-const documents = shallowRef<StoredStudioScheme[]>(loadDocuments())
-const activeId = ref<string | null>(documents.value[0]?.id ?? null)
-const importError = ref('')
+const buyerPreviewError = ref('')
+const activeId = ref<string | null>(props.documentId ?? documents.value[0]?.id ?? null)
 const exportedAt = ref<string | null>(null)
-
-function loadDocuments(): StoredStudioScheme[] {
-  try {
-    return loadStudioSchemes()
-  } catch {
-    storageAuthoritative.value = false
-    persistenceError.value = LOAD_ERROR
-    return []
-  }
-}
+const visibleError = computed(() => buyerPreviewError.value || persistenceError.value)
 
 const activeDocument = computed(() => (
-  documents.value.find(document => document.id === activeId.value) ?? null
+  activeId.value === null ? null : library.find(activeId.value)
 ))
 const nameDraft = ref(activeDocument.value?.file.scheme.name ?? '')
 const groupNameDraft = ref(activeDocument.value?.file.scheme.group_name ?? '')
 const identityDraftPending = ref(false)
+
+watch(activeId, (id) => {
+  if (id !== null) {
+    history.replaceState(history.state, '', schemeHash(id))
+  }
+})
 
 function resetIdentityDraft(document = activeDocument.value): void {
   nameDraft.value = document?.file.scheme.name ?? ''
@@ -55,100 +49,36 @@ function resetIdentityDraft(document = activeDocument.value): void {
   identityError.value = ''
 }
 
-function persist(nextDocuments: StoredStudioScheme[]): boolean {
-  if (!storageAuthoritative.value) {
-    persistenceError.value = LOAD_ERROR
-    return false
-  }
-
-  try {
-    saveStudioSchemes(nextDocuments)
-    documents.value = nextDocuments
-    persistenceError.value = ''
-    return true
-  } catch {
-    persistenceError.value = SAVE_ERROR
-    return false
-  }
-}
-
-function createUniqueDocument(file?: StudioSchemeFile): StoredStudioScheme {
-  const occupiedIds = new Set(documents.value.map(document => document.id))
-  let document = createStudioScheme(file?.scheme.name)
-
-  while (occupiedIds.has(document.id)) {
-    document = createStudioScheme(file?.scheme.name)
-  }
-
-  return file ? { ...document, file } : document
-}
-
-function createDocument(): void {
-  const document = createUniqueDocument()
-  if (!persist([...documents.value, document])) {
-    return
-  }
-
-  activeId.value = document.id
+function activate(document: StoredStudioScheme | null): void {
+  activeId.value = document?.id ?? null
   importError.value = ''
   resetIdentityDraft(document)
   exportedAt.value = null
 }
 
-function selectDocument(id: string): void {
-  activeId.value = id
-  importError.value = ''
-  resetIdentityDraft()
-  exportedAt.value = null
+function createDocument(): void {
+  const document = library.create()
+  if (document !== null) {
+    activate(document)
+  }
 }
 
-function updateActiveFile(
-  update: (file: StudioSchemeFile) => StudioSchemeFile,
-): StoredStudioScheme | null {
-  const id = activeId.value
-  if (id === null) {
-    return null
-  }
-
-  let updatedDocument: StoredStudioScheme | null = null
-  const nextDocuments = documents.value.map((document) => {
-    if (document.id !== id) {
-      return document
-    }
-
-    updatedDocument = {
-      ...document,
-      updatedAt: new Date().toISOString(),
-      file: update(document.file),
-    }
-
-    return updatedDocument
-  })
-
-  if (updatedDocument !== null) {
-    return persist(nextDocuments) ? updatedDocument : null
-  }
-
-  return null
+function selectDocument(id: string): void {
+  activate(library.find(id))
 }
 
 function persistIdentityDraft(): void {
   identityDraftPending.value = true
-  let scheme: StudioSchemeFile['scheme']
   try {
-    scheme = canonicalizeStudioSchemeIdentity(nameDraft.value, groupNameDraft.value)
+    canonicalizeStudioSchemeIdentity(nameDraft.value, groupNameDraft.value)
   } catch {
     identityError.value = STUDIO_SCHEME_IDENTITY_ERROR
     return
   }
 
-  const updatedDocument = updateActiveFile(file => ({
-    ...file,
-    scheme,
-  }))
-
-  if (updatedDocument !== null) {
-    resetIdentityDraft(updatedDocument)
+  const id = activeId.value
+  if (id !== null && library.rename(id, nameDraft.value, groupNameDraft.value)) {
+    resetIdentityDraft(library.find(id))
   }
 }
 
@@ -162,66 +92,17 @@ function updateGroupName(event: Event): void {
   persistIdentityDraft()
 }
 
-function withoutLegacyCapacity(objects: SeatMapObject[]): SeatMapObject[] {
-  return objects.map((object) => {
-    const capacityFreeObject = { ...object }
-    delete capacityFreeObject.capacity
-    return capacityFreeObject
-  })
-}
-
 function updateEditorState(
   canvas: SeatMapCanvasSize,
   objects: SeatMapObject[],
   priceGroups: SeatMapPricingGroupOption[],
   display: SeatMapDisplaySettings | null,
 ): StoredStudioScheme | null {
-  if (identityDraftPending.value) {
+  if (identityDraftPending.value || activeId.value === null) {
     return null
   }
 
-  return updateActiveFile((file) => {
-    const { display: _previousDisplay, ...schema } = file.schema_json
-
-    return {
-      ...file,
-      schema_json: {
-        ...schema,
-        canvas,
-        price_groups: priceGroups,
-        sections: [],
-        ...(display ? { display } : {}),
-      },
-      objects: withoutLegacyCapacity(objects),
-    }
-  })
-}
-
-function filenameFor(file: StudioSchemeFile): string {
-  const slug = file.scheme.name
-    .trim()
-    .toLocaleLowerCase('ru')
-    .replace(/[^a-zа-яё0-9]+/gi, '-')
-    .replace(/^-|-$/g, '')
-
-  return `${slug || 'fpass-scheme'}.json`
-}
-
-function downloadFile(file: StudioSchemeFile): void {
-  const blob = new Blob(
-    [JSON.stringify(file, null, 2)],
-    { type: 'application/json;charset=utf-8' },
-  )
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filenameFor(file)
-  anchor.click()
-  URL.revokeObjectURL(url)
-  exportedAt.value = new Date().toLocaleTimeString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return library.saveEditorState(activeId.value, canvas, objects, priceGroups, display)
 }
 
 function saveEditorState(
@@ -240,8 +121,11 @@ function exportEditorState(
   display: SeatMapDisplaySettings | null,
 ): void {
   const document = updateEditorState(canvas, objects, priceGroups, display)
-  if (document !== null) {
-    downloadFile(document.file)
+  if (document !== null && library.exportDocument(document.id)) {
+    exportedAt.value = new Date().toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   }
 }
 
@@ -266,14 +150,11 @@ function openBuyerPreview(
       createdAt: new Date().toISOString(),
     })
   } catch {
-    persistenceError.value = BUYER_PREVIEW_ERROR
+    buyerPreviewError.value = BUYER_PREVIEW_ERROR
     return
   }
 
-  if (persistenceError.value === BUYER_PREVIEW_ERROR) {
-    persistenceError.value = ''
-  }
-
+  buyerPreviewError.value = ''
   window.open(studioUrl(buyerPageHash(document.id)), '_blank')
 }
 
@@ -285,28 +166,9 @@ async function importFile(event: Event): Promise<void> {
     return
   }
 
-  try {
-    let raw: unknown = null
-    try {
-      raw = JSON.parse(await file.text())
-    } catch {
-      raw = null
-    }
-
-    const parsed = parseStudioSchemeFile(raw)
-    const document = createUniqueDocument(parsed)
-    if (!persist([...documents.value, document])) {
-      return
-    }
-
-    activeId.value = document.id
-    importError.value = ''
-    resetIdentityDraft(document)
-    exportedAt.value = null
-  } catch (error) {
-    importError.value = error instanceof Error
-      ? error.message
-      : 'Не удалось открыть JSON-файл.'
+  const document = await library.importFile(file)
+  if (document !== null) {
+    activate(document)
   }
 }
 
@@ -317,17 +179,12 @@ function deleteDocument(id: string): void {
   }
 
   const document = documents.value[index]
-  if (!confirm(`Удалить схему «${document.file.scheme.name || 'Без названия'}»?`)) {
-    return
-  }
-
-  const nextDocuments = documents.value.filter(candidate => candidate.id !== id)
-  if (!persist(nextDocuments)) {
+  if (!confirm(`Удалить схему «${document.file.scheme.name || 'Без названия'}»?`) || !library.remove(id)) {
     return
   }
 
   if (activeId.value === id) {
-    activeId.value = nextDocuments[Math.min(index, nextDocuments.length - 1)]?.id ?? null
+    activeId.value = documents.value[Math.min(index, documents.value.length - 1)]?.id ?? null
     resetIdentityDraft()
   }
 
@@ -340,6 +197,13 @@ function deleteDocument(id: string): void {
   <main class="min-h-screen bg-slate-50 p-3 md:p-5">
     <section class="mx-auto grid max-w-[1800px] gap-3">
       <header class="flex flex-wrap items-center gap-3 rounded-xl border bg-white px-4 py-3 shadow-sm">
+        <a
+          :href="GALLERY_HASH"
+          class="inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium hover:bg-slate-50"
+        >
+          <ArrowLeft class="size-4" />
+          Все схемы
+        </a>
         <div class="grid size-9 place-items-center rounded-lg bg-sky-500 text-xl font-bold text-white">F</div>
         <div class="mr-auto">
           <h1 class="text-base font-semibold">FPass Scheme Studio</h1>
@@ -371,11 +235,11 @@ function deleteDocument(id: string): void {
       </header>
 
       <p
-        v-if="persistenceError"
+        v-if="visibleError"
         data-testid="persistence-error"
         class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
       >
-        {{ persistenceError }}
+        {{ visibleError }}
       </p>
 
       <p

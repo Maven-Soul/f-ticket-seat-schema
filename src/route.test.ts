@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseStudioRoute } from './route'
+import { parseStudioRoute, schemeHash } from './route'
 
 describe('parseStudioRoute', () => {
   it('routes buyer simulation and buyer frame hashes', () => {
@@ -9,11 +9,24 @@ describe('parseStudioRoute', () => {
     expect(parseStudioRoute('#/buyer-frame/doc-1')).toEqual({ view: 'buyer-frame', id: 'doc-1', sold: 0 })
   })
 
-  it('clamps the sold percentage and falls back to the editor for anything else', () => {
+  it('clamps the sold percentage', () => {
     expect(parseStudioRoute('#/buyer-frame/doc-1?sold=250')).toEqual({ view: 'buyer-frame', id: 'doc-1', sold: 100 })
     expect(parseStudioRoute('#/buyer-frame/doc-1?sold=abc')).toEqual({ view: 'buyer-frame', id: 'doc-1', sold: 0 })
-    expect(parseStudioRoute('')).toEqual({ view: 'editor' })
-    expect(parseStudioRoute('#/buyer/')).toEqual({ view: 'editor' })
-    expect(parseStudioRoute('#/other')).toEqual({ view: 'editor' })
+  })
+
+  it('routes the gallery for empty, root and unknown hashes', () => {
+    expect(parseStudioRoute('')).toEqual({ view: 'gallery' })
+    expect(parseStudioRoute('#')).toEqual({ view: 'gallery' })
+    expect(parseStudioRoute('#/')).toEqual({ view: 'gallery' })
+    expect(parseStudioRoute('#/buyer/')).toEqual({ view: 'gallery' })
+    expect(parseStudioRoute('#/scheme/')).toEqual({ view: 'gallery' })
+    expect(parseStudioRoute('#/other')).toEqual({ view: 'gallery' })
+    expect(parseStudioRoute('#/scheme/%E0%A4%A')).toEqual({ view: 'gallery' })
+  })
+
+  it('routes and decodes scheme ids', () => {
+    expect(parseStudioRoute('#/scheme/doc-1')).toEqual({ view: 'scheme', id: 'doc-1' })
+    expect(parseStudioRoute(schemeHash('зал 1/2'))).toEqual({ view: 'scheme', id: 'зал 1/2' })
+    expect(schemeHash('doc-1')).toBe('#/scheme/doc-1')
   })
 })

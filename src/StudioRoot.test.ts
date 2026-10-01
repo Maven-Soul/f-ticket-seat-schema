@@ -5,7 +5,18 @@ import StudioRoot from './StudioRoot.vue'
 
 vi.mock('./App.vue', async () => {
   const { defineComponent, h } = await vi.importActual<typeof import('vue')>('vue')
-  return { default: defineComponent({ name: 'App', setup: () => () => h('div', { 'data-testid': 'editor-app' }) }) }
+  return {
+    default: defineComponent({
+      name: 'App',
+      props: { documentId: { type: String, default: null } },
+      setup: props => () => h('div', { 'data-testid': 'editor-app' }, props.documentId ?? ''),
+    }),
+  }
+})
+
+vi.mock('./gallery/GalleryPage.vue', async () => {
+  const { defineComponent, h } = await vi.importActual<typeof import('vue')>('vue')
+  return { default: defineComponent({ name: 'GalleryPage', setup: () => () => h('div', { 'data-testid': 'gallery' }) }) }
 })
 
 vi.mock('./buyer/BuyerSimulationPage.vue', async () => {
@@ -30,16 +41,46 @@ vi.mock('./buyer/BuyerSimulationFrame.vue', async () => {
   }
 })
 
+async function navigate(hash: string): Promise<void> {
+  window.location.hash = hash
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await flushPromises()
+}
+
 describe('StudioRoot hash routing', () => {
   afterEach(() => {
     window.location.hash = ''
   })
 
-  it('renders the editor by default', () => {
+  it('renders the gallery by default', () => {
     window.location.hash = ''
     const wrapper = mount(StudioRoot)
 
-    expect(wrapper.find('[data-testid="editor-app"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="gallery"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="editor-app"]').exists()).toBe(false)
+  })
+
+  it('renders the scheme editor with the routed id and returns to the gallery', async () => {
+    window.location.hash = '#/scheme/doc-1'
+    const wrapper = mount(StudioRoot)
+
+    expect(wrapper.get('[data-testid="editor-app"]').text()).toBe('doc-1')
+
+    await navigate('#/')
+
+    expect(wrapper.find('[data-testid="editor-app"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="gallery"]').exists()).toBe(true)
+  })
+
+  it('remounts the scheme editor when the hash switches to another scheme', async () => {
+    window.location.hash = '#/scheme/doc-1'
+    const wrapper = mount(StudioRoot)
+    const first = wrapper.findComponent({ name: 'App' }).vm
+
+    await navigate('#/scheme/doc-2')
+
+    expect(wrapper.get('[data-testid="editor-app"]').text()).toBe('doc-2')
+    expect(wrapper.findComponent({ name: 'App' }).vm).not.toBe(first)
   })
 
   it('renders the buyer simulation page and frame for their hashes', async () => {
@@ -48,9 +89,7 @@ describe('StudioRoot hash routing', () => {
 
     expect(wrapper.get('[data-testid="buyer-page"]').text()).toBe('doc-1')
 
-    window.location.hash = '#/buyer-frame/doc-1?sold=30'
-    window.dispatchEvent(new HashChangeEvent('hashchange'))
-    await flushPromises()
+    await navigate('#/buyer-frame/doc-1?sold=30')
 
     expect(wrapper.get('[data-testid="buyer-frame"]').text()).toBe('doc-1:30')
     expect(wrapper.find('[data-testid="buyer-page"]').exists()).toBe(false)
@@ -61,9 +100,7 @@ describe('StudioRoot hash routing', () => {
     const wrapper = mount(StudioRoot)
     const first = wrapper.findComponent({ name: 'BuyerSimulationFrame' }).vm
 
-    window.location.hash = '#/buyer-frame/doc-2?sold=0'
-    window.dispatchEvent(new HashChangeEvent('hashchange'))
-    await flushPromises()
+    await navigate('#/buyer-frame/doc-2?sold=0')
 
     expect(wrapper.findComponent({ name: 'BuyerSimulationFrame' }).vm).not.toBe(first)
   })

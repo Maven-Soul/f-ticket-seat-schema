@@ -1,9 +1,12 @@
 export type StudioRoute =
-  | { view: 'editor' }
+  | { view: 'gallery' }
+  | { view: 'scheme', id: string }
   | { view: 'buyer', id: string }
   | { view: 'buyer-frame', id: string, sold: number }
 
-const BUYER_ROUTE = /^#\/(buyer|buyer-frame)\/([^/?]+)(?:\?(.*))?$/
+const ID_ROUTE = /^#\/(scheme|buyer|buyer-frame)\/([^/?]+)(?:\?(.*))?$/
+
+export const GALLERY_HASH = '#/'
 
 function soldPercent(query: string | undefined): number {
   const value = Number.parseInt(new URLSearchParams(query ?? '').get('sold') ?? '', 10)
@@ -11,13 +14,24 @@ function soldPercent(query: string | undefined): number {
   return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0
 }
 
+function decodeId(value: string): string | null {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
+
 export function parseStudioRoute(hash: string): StudioRoute {
-  const match = BUYER_ROUTE.exec(hash)
-  if (!match) {
-    return { view: 'editor' }
+  const match = ID_ROUTE.exec(hash)
+  const id = match ? decodeId(match[2]) : null
+  if (!match || id === null) {
+    return { view: 'gallery' }
   }
 
-  const id = decodeURIComponent(match[2])
+  if (match[1] === 'scheme') {
+    return { view: 'scheme', id }
+  }
 
   return match[1] === 'buyer'
     ? { view: 'buyer', id }
@@ -26,6 +40,10 @@ export function parseStudioRoute(hash: string): StudioRoute {
 
 export function studioUrl(hash: string): string {
   return `${window.location.href.split('#')[0]}${hash}`
+}
+
+export function schemeHash(id: string): string {
+  return `#/scheme/${encodeURIComponent(id)}`
 }
 
 export function buyerPageHash(id: string): string {

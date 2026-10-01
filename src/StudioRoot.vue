@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import App from './App.vue'
 import BuyerSimulationFrame from './buyer/BuyerSimulationFrame.vue'
 import BuyerSimulationPage from './buyer/BuyerSimulationPage.vue'
+import GalleryPage from './gallery/GalleryPage.vue'
 import { parseStudioRoute } from './route'
 
 const hash = ref(window.location.hash)
@@ -29,5 +30,10 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncHash))
     :document-id="route.id"
     :sold-percent="route.sold"
   />
-  <App v-else />
+  <App
+    v-else-if="route.view === 'scheme'"
+    :key="route.id"
+    :document-id="route.id"
+  />
+  <GalleryPage v-else />
 </template>
